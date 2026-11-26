@@ -11,6 +11,7 @@
 //   VRE.camera()         opening the rear camera (the player's choice of lens, 60 pictures a second, recovery)
 //   VRE.lensChoice()     the Auto / Fisheye / Regular choice on a setup page
 //   VRE.hands()          the hand finder (graphics chip first, processor if not; looking at part of the picture)
+//   VRE.recorder()       keeps what the hand finder saw during play (points, no picture), for tuning against a real hand
 //   VRE.sound()          tones and noise, placed left or right
 // It is a plain script with no build step. three.js must be loaded before it. Each game loads one fixed version of this
 // file (the folder name, v1), so a change here reaches a game only when that game is moved to the new version.
@@ -19,7 +20,7 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '1.2.0' };
+  const VRE = { version: '1.3.0' };
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -467,6 +468,51 @@
       handSys.swapping = false;
     }
     return { handSys, errText, loadHands, handSwap, roi, roiSource, roiAfter, get lm() { return landmarker; } };
+  };
+
+  // ---------- recording a hand, for tuning ----------
+  // Keeps what the hand finder saw during play, so that changes to the tracking can be tried against a real hand and
+  // not only a stand-in. For every look at the camera picture it keeps: the time, how old the picture was, where the
+  // head pointed when it was taken, and, if a hand was found, its 21 points in the picture and in 3D. It also keeps
+  // named moments of the game (a throw, a shot). There is no picture in it. It stays in the page until the player
+  // saves or copies it, and is gone on reload. Numbers are whole numbers to keep the file small: times in
+  // milliseconds; positions and directions times 10,000.
+  //   rec.start(meta)                       begin, with facts about this run (game, version, camera)
+  //   rec.frame(t, age, quat, lm, world, x) one look: quat is the head's [x, y, z, w]; lm and world may be null
+  //   rec.event(t, name, data)              a named moment
+  //   rec.stop()  rec.json()  rec.save(name)  rec.copy()  rec.size()
+  VRE.recorder = function () {
+    const R = { on: false, t0: 0, meta: null, f: [], e: [], MAX: 6000 }; // 6000 looks is over three minutes
+    const i4 = (v) => Math.round(v * 10000);
+    const rec = {
+      get on() { return R.on; },
+      get frames() { return R.f.length; },
+      start(meta) { R.on = true; R.t0 = performance.now(); R.meta = Object.assign({ engine: VRE.version, when: new Date().toISOString() }, meta || {}); R.f = []; R.e = []; },
+      stop() { R.on = false; },
+      frame(t, age, quat, lm, world, extra) {
+        if (!R.on || R.f.length >= R.MAX) return;
+        const row = [Math.round(t - R.t0), Math.round(age || 0), i4(quat[0]), i4(quat[1]), i4(quat[2]), i4(quat[3]), lm ? 1 : 0];
+        if (lm) {
+          for (let i = 0; i < 21; i++) row.push(i4(lm[i].x), i4(lm[i].y));
+          for (let i = 0; i < 21; i++) { const w = world && world[i]; row.push(w ? i4(w.x) : 0, w ? i4(w.y) : 0, w ? i4(w.z) : 0); }
+          row.push(world ? 1 : 0);
+        }
+        if (extra) for (const v of extra) row.push(Math.round(v * 1000));
+        R.f.push(row);
+      },
+      event(t, name, data) { if (R.on && R.e.length < 2000) R.e.push([Math.round(t - R.t0), name, data == null ? null : data]); },
+      size() { return R.f.length ? rec.json().length : 0; },
+      json() { return JSON.stringify({ v: 1, what: 'vr-hand-recording', meta: R.meta, f: R.f, e: R.e }); },
+      async copy() { await navigator.clipboard.writeText(rec.json()); },
+      // hands the recording to the phone as a file: the share sheet where there is one (Save to Files, AirDrop), else a download
+      async save(name) {
+        const file = new File([rec.json()], name || 'hand-recording.json', { type: 'application/json' });
+        try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: file.name }); return 'shared'; } } catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; }
+        const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+        return 'downloaded';
+      },
+    };
+    return rec;
   };
 
   // ---------- sound ----------

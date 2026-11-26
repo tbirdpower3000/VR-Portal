@@ -63,6 +63,7 @@ the motion sensors and the lenses are not there.
 
 ## Versions
 
+- **1.3.0** (26 Nov 2026): `VRE.recorder()`, which keeps what the hand finder saw during play (the hand's 21 points, where the head pointed, named game moments; no picture) so tracking changes can be tried against a real hand. `tests/hand-report.cjs FILE` prints what a recording says: looks a second, how often the hand was lost, how much a still hand shakes, jumps, and the range of the thumb reading.
 - **1.2.0** (26 Nov 2026): `VRE.Motion`, the Planetary Modeling Atlas's tracker for a moving hand, copied from the atlas unchanged: it leads a fast hand by up to 60 ms to cancel the camera's delay, stops leading when the hand brakes, and asks for more smoothing while a nearly still hand jitters.
 - **1.1.0** (26 Nov 2026): a choice of camera lens for the player, `VRE.lensChoice()`: Auto, Fisheye (the widest) or Regular, kept for every game. `VRE.camera()` takes it as `lens`; a game that does not pass one behaves as before.
 - **1.0.1** (26 Nov 2026): the widest camera is no longer given up for good after one failure to give a picture. It is tried again next time, given four seconds, and only left alone after failing twice running; a success wipes the slate.

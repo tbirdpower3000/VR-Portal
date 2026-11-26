@@ -34,7 +34,7 @@ const server = http.createServer((req, res) => {
     const out = [], ok = (name, pass, got) => out.push({ name, pass: !!pass, got });
     const near = (a, b, tol) => Math.abs(a - b) <= (tol || 1e-6);
     ok('engine has a version', /^\d+\.\d+\.\d+$/.test(VRE.version), VRE.version);
-    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'Motion', 'camera', 'lensChoice', 'hands', 'sound'].every((k) => VRE[k]));
+    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'Motion', 'camera', 'lensChoice', 'hands', 'recorder', 'sound'].every((k) => VRE[k]));
     ok('mirror calls left then right', JSON.stringify(VRE.mirror((s) => s)) === '[-1,1]');
     ok('subdivide(0) is the whole picture', JSON.stringify(VRE.subdivide(0)) === '[{"s":1,"cx":0.5,"cy":0.5}]');
     const g = VRE.subdivide(1).map((c) => [c.cx, c.cy]);
@@ -61,6 +61,13 @@ const server = http.createServer((req, res) => {
     ok('Motion: a fast hand is led ahead of where it was last seen', q.fast > 0.9 && q.lead[0] > 0.2 + 39 * 0.02, q.fast.toFixed(2) + ' ' + q.lead[0].toFixed(3));
     const mj = new VRE.Motion(); let c = null; for (let i = 0; i < 60; i++) c = mj.step([0.5 + (i % 2 ? 0.006 : -0.006), 0.5], i * 33);
     ok('Motion: a jittery still hand asks for more smoothing', c.calm < 0.85, c.calm.toFixed(2));
+    const rc = VRE.recorder(); rc.frame(0, 0, [0, 0, 0, 1], null, null); const idle = rc.frames;
+    rc.start({ game: 'test' }); const pts = Array.from({ length: 21 }, (_, i) => ({ x: 0.5 + i * 0.001, y: 0.25, z: 0.01 }));
+    rc.frame(performance.now(), 70, [0, 0.7071, 0, 0.7071], pts, pts, [0.6]); rc.frame(performance.now(), 70, [0, 0, 0, 1], null, null); rc.event(performance.now(), 'shot', { hits: 1 }); rc.stop(); rc.frame(performance.now(), 0, [0, 0, 0, 1], null, null);
+    const J = JSON.parse(rc.json());
+    ok('recorder: nothing kept before start or after stop', idle === 0 && J.f.length === 2);
+    ok('recorder: a found hand is 7 + 42 + 63 + 1 + extras numbers, a lost one 7', J.f[0].length === 7 + 42 + 63 + 1 + 1 && J.f[1].length === 7, J.f[0].length + ',' + J.f[1].length);
+    ok('recorder: values survive as whole numbers', J.f[0][1] === 70 && J.f[0][3] === 7071 && J.f[0][7] === 5000 && J.f[0][8] === 2500 && J.f[0][J.f[0].length - 1] === 600 && J.e[0][1] === 'shot' && J.meta.game === 'test' && J.meta.engine === VRE.version);
     const m = VRE.med3(); m.f(1); m.f(9); ok('median of three drops a one-frame spike', m.f(1) === 1);
     VRE.store.set('vrEngineTest', { a: 1 });
     ok('saved settings come back', VRE.store.get('vrEngineTest', null).a === 1 && VRE.store.get('vrEngineMissing', 7) === 7);

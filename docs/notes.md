@@ -46,3 +46,7 @@ A failed experiment is a result. Newest first.
   begins.
 - **Not yet known:** whether iPhone Safari grants 60 pictures a second; whether the lens
   fitting looks right through a real viewer; how the thumb trigger reads a real thumb.
+
+## 26 Nov 2026: recording a real hand (engine 1.3.0)
+
+Every tracking change so far was tested against a made-up hand and then judged by feel on the phone. `VRE.recorder()` keeps the real thing: per look at the camera, the time, the picture's age, the head's direction and the hand's 21 points (picture and 3D), plus game moments. About 0.4 KB a look, so three minutes is roughly 2.5 MB. Skeet v0.19 has the tick box and Save / Copy buttons; its test driver takes `--record FILE` and `--replay FILE`, and the stand-in hand finder plays a recording back, turning the head with it. Limits of a replay: the clays are thrown afresh, so hits are not comparable, only steadiness, losses and the trigger; and the part-of-the-picture search can only be handed points that fall inside the part it asked for.
