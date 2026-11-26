@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#070b14" />
+<title>VR Portal</title>
+<style>
+  :root { --space: #070b14; --panel: #101827; --ink: #e9eef5; --muted: #9fb0c6; --gold: #ffd88a; --rule: #26344a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--space); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left)); }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 26px 0 8px; color: var(--gold); }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 0.92rem; }
+  a.game { display: block; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 16px; margin-top: 12px; color: inherit; text-decoration: none; }
+  a.game:hover, a.game:focus-visible { border-color: var(--gold); outline: none; }
+  a.game b { font-size: 1.1rem; }
+  a { color: var(--gold); }
+</style>
+</head>
+<body>
+<main>
+  <h1>🥽 VR Portal</h1>
+  <p class="muted">Games and worlds for a phone in a Google Cardboard viewer, played in the browser. Pick one, press Start, turn the phone sideways and put it in the viewer.</p>
+
+  <h2>Games</h2>
+  <a class="game" href="../Skeet-Game/"><b>🎯 Skeet VR</b><br /><span class="muted">Clay targets fly across in front of you. Aim with a finger gun and drop your thumb to fire, or aim by looking.</span></a>
+  <a class="game" href="../VR-FruitSlicer/"><b>🍉 Fruit Slicer VR</b><br /><span class="muted">Fruit is thrown towards you. Cut it with your index finger, or with your gaze.</span></a>
+
+  <h2>Worlds</h2>
+  <a class="game" href="../planetary-atlas-v15mk2/"><b>🪐 Planetary Modeling Atlas</b><br /><span class="muted">The Solar System and its worlds. Press the 🥽 VR button on the map or on a globe.</span></a>
+
+  <h2>For builders</h2>
+  <p class="muted">The games share one <a href="examples/demo.html">VR engine</a> (stereo view, lens fitting for the 2015 Cardboard, camera and hand finder, sound). Its code and notes are in the <a href="https://github.com/tbirdpower3000/VR-Portal">VR-Portal repository</a>.</p>
+  <p class="muted">Nothing here is a medical or safety device. Clear the space around you, and stop if you feel dizzy.</p>
+</main>
+</body>
+</html>

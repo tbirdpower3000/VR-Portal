@@ -1,0 +1,28 @@
+name: Engine checks
+# Runs the engine's checks on every push and pull request.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the browser
+        run: |
+          npm install --no-save playwright@1.48.0
+          npx playwright install --with-deps chromium
+      - name: Run the checks
+        run: node tests/engine.test.cjs --out test-output
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: engine-test-output
+          path: test-output/
