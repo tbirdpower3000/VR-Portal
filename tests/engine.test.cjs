@@ -34,7 +34,7 @@ const server = http.createServer((req, res) => {
     const out = [], ok = (name, pass, got) => out.push({ name, pass: !!pass, got });
     const near = (a, b, tol) => Math.abs(a - b) <= (tol || 1e-6);
     ok('engine has a version', /^\d+\.\d+\.\d+$/.test(VRE.version), VRE.version);
-    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'camera', 'hands', 'sound'].every((k) => VRE[k]));
+    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'camera', 'lensChoice', 'hands', 'sound'].every((k) => VRE[k]));
     ok('mirror calls left then right', JSON.stringify(VRE.mirror((s) => s)) === '[-1,1]');
     ok('subdivide(0) is the whole picture', JSON.stringify(VRE.subdivide(0)) === '[{"s":1,"cx":0.5,"cy":0.5}]');
     const g = VRE.subdivide(1).map((c) => [c.cx, c.cy]);

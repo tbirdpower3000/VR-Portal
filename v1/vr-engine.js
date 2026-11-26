@@ -7,7 +7,8 @@
 //   VRE.lens()           fitting each eye's picture to the viewer's lenses
 //   VRE.textPlane / VRE.drawText   signs made of text, in the scene
 //   VRE.OneEuro / VRE.med3         the filters that steady a hand
-//   VRE.camera()         opening the rear camera (widest view, 60 pictures a second, recovery)
+//   VRE.camera()         opening the rear camera (the player's choice of lens, 60 pictures a second, recovery)
+//   VRE.lensChoice()     the Auto / Fisheye / Regular choice on a setup page
 //   VRE.hands()          the hand finder (graphics chip first, processor if not; looking at part of the picture)
 //   VRE.sound()          tones and noise, placed left or right
 // It is a plain script with no build step. three.js must be loaded before it. Each game loads one fixed version of this
@@ -17,7 +18,7 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '1.0.0' };
+  const VRE = { version: '1.1.0' };
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -240,7 +241,16 @@
   // ---------- the rear camera ----------
   // vid: the page's <video>; plainKey: the name under which "leave this phone on the ordinary camera" is remembered;
   // info: an object that is given .cam (the camera's name) and .camFps (pictures a second it settled on)
-  VRE.camera = function ({ vid, plainKey, info }) {
+  // lens: a function giving the player's choice of lens: 'auto' (the widest, unless it has failed twice on this phone),
+  // 'wide' (always try the widest, the fisheye view) or 'regular' (the ordinary rear camera, not zoomed out)
+  VRE.LENSES = ['auto', 'wide', 'regular'];
+  // the choice of lens on a setup page: radio buttons named "camLens" with those three values, kept for every game
+  VRE.lensChoice = function () {
+    const radios = [...document.querySelectorAll('input[name=camLens]')], saved = store.get('vrCamLens', 'auto');
+    radios.forEach((r) => { r.checked = r.value === (VRE.LENSES.includes(saved) ? saved : 'auto'); r.onchange = () => store.set('vrCamLens', r.value); });
+    return () => { const r = radios.find((x) => x.checked); return r && VRE.LENSES.includes(r.value) ? r.value : 'auto'; };
+  };
+  VRE.camera = function ({ vid, plainKey, info, lens }) {
     // One rear camera is opened, and always the one with the widest view. The phone lists its rear cameras by name once the
     // camera is allowed. A separate ultra-wide (0.5x) camera is taken first; failing that, a combined camera ("Triple",
     // "Dual Wide") that can zoom out to the ultra-wide lens; failing that, the ordinary one. Whichever opens is then zoomed
@@ -262,7 +272,20 @@
     async function startCamera() {
       let st = await openCam({ facingMode: { ideal: 'environment' } });
       let track = st.getVideoTracks()[0], switched = false;
-      if (!store.get(plainKey, false)) try {
+      // The widest camera is tried unless it has failed to give a picture twice running on this phone. One failure is
+      // not held against it (a phone can be slow to start a camera once), and a success wipes the slate.
+      const fails = +store.get(plainKey, 0) || 0; // an earlier version saved true here after one failure; that counts as one
+      const want = lens ? lens() : 'auto', tryWide = want === 'wide' || (want === 'auto' && fails < 2);
+      info.camLens = want;
+      info.camWide = want === 'regular' ? 'not asked for' : tryWide ? 'tried' : 'given up after two failures';
+      if (want === 'regular' && /ultra/i.test(track.label || '')) {
+        // the phone handed over its fisheye camera by itself: look for an ordinary rear one instead
+        try {
+          const plain = (await navigator.mediaDevices.enumerateDevices()).find((d) => d.kind === 'videoinput' && d.deviceId && /back|rear|environment/i.test(d.label) && !/ultra|front|selfie|tele/i.test(d.label));
+          if (plain) { stopCam(st); st = await openCam({ deviceId: { exact: plain.deviceId } }); track = st.getVideoTracks()[0]; }
+        } catch (e) {}
+      }
+      if (tryWide) try {
         const front = /front|selfie|facetime|user/i, cur = track.getSettings ? track.getSettings().deviceId : null;
         const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput' && d.deviceId && !front.test(d.label));
         const rank = (d) => (/ultra/i.test(d.label) ? 0 : /triple/i.test(d.label) ? 1 : /dual.*wide|wide.*dual/i.test(d.label) ? 2 : 9);
@@ -280,21 +303,24 @@
         }
       } catch (e) {}
       if (track.readyState === 'ended') { st = await openCam({ facingMode: { ideal: 'environment' } }); track = st.getVideoTracks()[0]; }
-      await zoomOut(track);
+      if (want !== 'regular') await zoomOut(track); // the ordinary lens is left at its own view
       // The video is started without waiting on it: a camera that opens but never gives a picture would otherwise hold
-      // the game at the setup page for good. A wider camera that gives no picture within two and a half seconds is given
-      // up: the ordinary camera is opened in its place, and this phone is remembered as one to leave on the ordinary camera.
+      // the game at the setup page for good. A wider camera that gives no picture within four seconds is given up for
+      // this time: the ordinary camera is opened in its place, and the failure is counted.
       const pictures = async (ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (vid.readyState >= 2 && vid.videoWidth > 0) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
       const show = () => { vid.srcObject = st; const pl = vid.play(); if (pl && pl.catch) pl.catch(() => {}); };
       show();
-      if (switched && !(await pictures(2500))) {
-        store.set(plainKey, true);
+      if (switched && !(await pictures(4000))) {
+        store.set(plainKey, fails + 1);
+        info.camWide = 'gave no picture';
+        switched = false;
         stopCam(st);
         st = await openCam({ facingMode: { ideal: 'environment' } });
         track = st.getVideoTracks()[0];
         show();
       }
       if (!(await pictures(3000))) { stopCam(st); throw new Error('The camera gave no picture'); }
+      if (switched) { store.set(plainKey, 0); info.camWide = 'in use'; }
       info.cam = track.label || '';
       info.camFps = (track.getSettings && Math.round(track.getSettings().frameRate || 0)) || 0; // what the camera settled on
       return st;

@@ -26,7 +26,7 @@ had to be made twice. That shared half now lives here once.
 | `VRE.lens()` | Fitting each eye's picture to the Cardboard's lenses, from Google's viewer profile |
 | `VRE.textPlane`, `VRE.drawText` | Signs made of text, in the scene |
 | `VRE.OneEuro`, `VRE.med3` | The filters that steady a hand |
-| `VRE.camera()` | The rear camera: widest view, 60 pictures a second, recovery when it gives no picture |
+| `VRE.camera()`, `VRE.lensChoice()` | The rear camera: the player's choice of lens (Auto, Fisheye, Regular), 60 pictures a second, recovery when it gives no picture |
 | `VRE.hands()` | The hand finder: graphics chip first, processor if not; looks at a part of the picture that follows the hand |
 | `VRE.sound()` | Tones and noise, placed left or right |
 
@@ -63,6 +63,8 @@ the motion sensors and the lenses are not there.
 
 ## Versions
 
+- **1.1.0** (26 Nov 2026): a choice of camera lens for the player, `VRE.lensChoice()`: Auto, Fisheye (the widest) or Regular, kept for every game. `VRE.camera()` takes it as `lens`; a game that does not pass one behaves as before.
+- **1.0.1** (26 Nov 2026): the widest camera is no longer given up for good after one failure to give a picture. It is tried again next time, given four seconds, and only left alone after failing twice running; a success wipes the slate.
 - **1.0.0** (26 Nov 2026): first version, taken out of Skeet VR v0.13. Used by Skeet VR from v0.14 and Fruit Slicer VR from v0.13. Adds `VRE.mirror`
   (the two eyes written once) and `VRE.subdivide` (the hand search's parts from one rule).
 
