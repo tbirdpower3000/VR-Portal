@@ -26,6 +26,8 @@ across.
 
 A failed experiment is a result. Newest first.
 
+- **26 Nov 2026. Practice step, first form: too hard.** Three holds per disc (point, thumb up, drop), each needing the ring exactly on the disc; the player found it challenging. Likely cause: dropping the thumb jerks the hand off the disc at the moment it is judged. Now two steps, a wider zone round the disc, and a shot counts if the ring was near the disc at any moment in the last 0.7 s.
+- **26 Nov 2026. A tracker jump, then smoothing: found by a stand-in hand.** A 15 degree jump in one camera picture left the crosshair overshooting by 8.7 degrees and unsettled for 0.4 s once the atlas's motion tracker was added. A jump faster than any hand now restarts the filters: 0.3 degrees, settled in one picture.
 - **26 Nov 2026. Trigger from the angle between thumb and finger: failed.** Exact with a stand-in hand (90, 60, 45, 20 and 0 degrees all read correctly, even tilted), but the player found the first trigger better on a real hand. Likely cause: from behind, the pointing finger is nearly end-on, so its direction depends on the tracker's depth guess. Skeet v0.16 goes back to the gap between the thumb's tip and the base of the finger. Lesson: a stand-in hand has perfect depth; a measure that leans on depth must be tried on a phone before it replaces one that does not.
 - **26 Nov 2026. Fruit Slicer VR moved onto the engine.** Each of its eight shared parts was compared with the code the engine was made from and found identical before the switch; its scenario checks pass unchanged.
 - **26 Nov 2026. Engine taken out of Skeet VR.** Done by slicing Skeet's own text into the

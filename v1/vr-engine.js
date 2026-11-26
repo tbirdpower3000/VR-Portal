@@ -7,6 +7,7 @@
 //   VRE.lens()           fitting each eye's picture to the viewer's lenses
 //   VRE.textPlane / VRE.drawText   signs made of text, in the scene
 //   VRE.OneEuro / VRE.med3         the filters that steady a hand
+//   VRE.Motion           the atlas's tracker for a moving hand: lead on fast moves, more smoothing on a jittery still one
 //   VRE.camera()         opening the rear camera (the player's choice of lens, 60 pictures a second, recovery)
 //   VRE.lensChoice()     the Auto / Fisheye / Regular choice on a setup page
 //   VRE.hands()          the hand finder (graphics chip first, processor if not; looking at part of the picture)
@@ -18,7 +19,7 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '1.1.0' };
+  const VRE = { version: '1.2.0' };
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -237,6 +238,76 @@
     }
   }
   VRE.med3 = () => { const q = []; return { f(v) { q.push(v); if (q.length > 3) q.shift(); return q.length < 3 ? v : [...q].sort((a, b) => a - b)[1]; }, reset() { q.length = 0; } }; };
+
+  // ---------- following a moving hand ----------
+  // Taken from the Planetary Modeling Atlas's hand control, where it was tuned against alternatives. It is fed a point
+  // in "camera pictures" (0..1 across) each time the hand is seen, and gives back: lead, the point led ahead of a fast
+  // hand to cancel the camera's delay; fast, 0..1, how far to trust that lead over the smoothed point; and calm, 1 down
+  // to 0.4, a factor for the smoothing filter's cutoff that turns the smoothing up while a nearly still hand jitters.
+  // ---- fast and accelerating moves: an alpha-beta-gamma tracker (position, velocity and acceleration, predicted then
+  // corrected each frame) runs beside the smoothing. When the hand moves fast it takes over, leading the hand by up to
+  // 60 ms to cancel the camera's delay, and it stops leading the moment the hand decelerates, so a fast stop doesn't
+  // overshoot. Its gains rise with acceleration, so a sudden start is followed at once. A first-order high-pass filter
+  // (4 Hz) on the raw position picks out the quick, jittery part of the motion; while the hand is nearly still, a strong
+  // high-pass signal turns the smoothing up.
+  VRE.Motion = class Motion {
+    constructor() {
+      this.reset();
+    }
+    reset() {
+      this.p = null;
+      this.v = [0, 0];
+      this.a = [0, 0];
+      this.t = null;
+      this.hp = [0, 0];
+      this.z0 = null;
+      this.speed = 0;
+      this.fast = 0;
+      this.hpMag = 0;
+      this.vl = [0, 0];
+    }
+    step(z, t) {
+      if (!this.p) {
+        this.p = [z[0], z[1]];
+        this.z0 = [z[0], z[1]];
+        this.t = t;
+        return { lead: [z[0], z[1]], fast: 0, calm: 1 };
+      }
+      const dt = Math.max(1e-3, Math.min(0.1, (t - this.t) / 1000));
+      this.t = t;
+      // high-pass: y[n] = k (y[n-1] + x[n] − x[n-1]), k = RC / (RC + dt), cutoff 4 Hz
+      const rc = 1 / (2 * Math.PI * 4),
+        k = rc / (rc + dt);
+      for (let i = 0; i < 2; i++) this.hp[i] = k * (this.hp[i] + z[i] - this.z0[i]);
+      this.z0 = [z[0], z[1]];
+      this.hpMag += (Math.hypot(this.hp[0], this.hp[1]) - this.hpMag) * 0.2;
+      // alpha-beta-gamma: alpha from 0.5 (smooth) to 0.9 (follow) with acceleration; beta and gamma from the standard relations
+      const acc = Math.hypot(this.a[0], this.a[1]),
+        alpha = 0.5 + 0.4 * Math.min(1, acc / 25),
+        beta = 2 * (2 - alpha) - 4 * Math.sqrt(1 - alpha),
+        gamma = (beta * beta) / (2 * alpha);
+      for (let i = 0; i < 2; i++) {
+        const pp = this.p[i] + this.v[i] * dt + 0.5 * this.a[i] * dt * dt,
+          vp = this.v[i] + this.a[i] * dt,
+          r = z[i] - pp;
+        this.p[i] = pp + alpha * r;
+        this.v[i] = vp + (beta * r) / dt;
+        this.a[i] = this.a[i] * 0.9 + (2 * gamma * r) / (dt * dt);
+      }
+      // the velocity averaged over about 0.15 s: a tremor's back-and-forth cancels out, a real move doesn't, so a shaky but
+      // still hand never counts as fast
+      const kv = 1 - Math.exp(-dt / 0.08); // speed averaged over 80 ms (was 150): the lead starts sooner
+      for (let i = 0; i < 2; i++) this.vl[i] += (this.v[i] - this.vl[i]) * kv;
+      this.speed = Math.hypot(this.vl[0], this.vl[1]); // in camera pictures per second
+      const s = Math.max(0, Math.min(1, (this.speed - 0.15) / 0.35)); // the lead fades in from ordinary reaching speeds (was from 0.6)
+      this.fast = s * s * (3 - 2 * s);
+      const braking = this.vl[0] * this.a[0] + this.vl[1] * this.a[1] < 0,
+        lead = braking ? 0 : 0.06 * this.fast;
+      // while nearly still, strong high-pass energy (jitter) asks for more smoothing: 1 = none needed, down to 0.4
+      const calm = this.speed < 0.3 ? Math.max(0.4, Math.min(1, 1 - (this.hpMag - 0.002) / 0.008)) : 1;
+      return { lead: [this.p[0] + this.vl[0] * lead, this.p[1] + this.vl[1] * lead], fast: this.fast, calm };
+    }
+  }
 
   // ---------- the rear camera ----------
   // vid: the page's <video>; plainKey: the name under which "leave this phone on the ordinary camera" is remembered;

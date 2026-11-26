@@ -34,7 +34,7 @@ const server = http.createServer((req, res) => {
     const out = [], ok = (name, pass, got) => out.push({ name, pass: !!pass, got });
     const near = (a, b, tol) => Math.abs(a - b) <= (tol || 1e-6);
     ok('engine has a version', /^\d+\.\d+\.\d+$/.test(VRE.version), VRE.version);
-    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'camera', 'lensChoice', 'hands', 'sound'].every((k) => VRE[k]));
+    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'Motion', 'camera', 'lensChoice', 'hands', 'sound'].every((k) => VRE[k]));
     ok('mirror calls left then right', JSON.stringify(VRE.mirror((s) => s)) === '[-1,1]');
     ok('subdivide(0) is the whole picture', JSON.stringify(VRE.subdivide(0)) === '[{"s":1,"cx":0.5,"cy":0.5}]');
     const g = VRE.subdivide(1).map((c) => [c.cx, c.cy]);
@@ -55,6 +55,12 @@ const server = http.createServer((req, res) => {
     ok('One Euro filter holds a steady value', near(v, 1));
     const f2 = new VRE.OneEuro(0.8, 3); f2.f(0, 0); let w = 0; for (let i = 1; i < 120; i++) w = f2.f(1, i * 16);
     ok('One Euro filter follows a step', w > 0.95 && w <= 1.0001, w.toFixed(3));
+    const mo = new VRE.Motion(); let o = null; for (let i = 0; i < 40; i++) o = mo.step([0.5, 0.5], i * 33);
+    ok('Motion: a still hand is not led and not fast', o.fast === 0 && near(o.lead[0], 0.5, 1e-6));
+    const mv = new VRE.Motion(); let q = null; for (let i = 0; i < 40; i++) q = mv.step([0.2 + i * 0.02, 0.5], i * 33); // 0.6 pictures a second
+    ok('Motion: a fast hand is led ahead of where it was last seen', q.fast > 0.9 && q.lead[0] > 0.2 + 39 * 0.02, q.fast.toFixed(2) + ' ' + q.lead[0].toFixed(3));
+    const mj = new VRE.Motion(); let c = null; for (let i = 0; i < 60; i++) c = mj.step([0.5 + (i % 2 ? 0.006 : -0.006), 0.5], i * 33);
+    ok('Motion: a jittery still hand asks for more smoothing', c.calm < 0.85, c.calm.toFixed(2));
     const m = VRE.med3(); m.f(1); m.f(9); ok('median of three drops a one-frame spike', m.f(1) === 1);
     VRE.store.set('vrEngineTest', { a: 1 });
     ok('saved settings come back', VRE.store.get('vrEngineTest', null).a === 1 && VRE.store.get('vrEngineMissing', 7) === 7);
