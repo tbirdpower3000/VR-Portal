@@ -1,10 +1,20 @@
 {
   "name": "vr-portal",
   "parent": "tbirdpower3000",
-  "children": ["v1/vr-engine.js", "examples/demo.html", "tests/engine.test.cjs"],
+  "children": [
+    "v1/vr-engine.js",
+    "examples/demo.html",
+    "tests/engine.test.cjs"
+  ],
   "version": "1.0.0",
-  "uses": { "three": "r128", "mediapipe-tasks-vision": "0.10.14" },
-  "usedBy": ["Skeet-Game (from v0.14)"],
+  "uses": {
+    "three": "r128",
+    "mediapipe-tasks-vision": "0.10.14"
+  },
+  "usedBy": [
+    "Skeet-Game (from v0.14)",
+    "VR-FruitSlicer (from v0.13)"
+  ],
   "pattern": {
     "group": "mirror, order 2: the two eyes (VRE.mirror)",
     "recursion": "picture split into overlapping half-size parts (VRE.subdivide), depth 1 in use, any depth available",

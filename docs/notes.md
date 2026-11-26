@@ -26,9 +26,10 @@ across.
 
 A failed experiment is a result. Newest first.
 
+- **26 Nov 2026. Fruit Slicer VR moved onto the engine.** Each of its eight shared parts was compared with the code the engine was made from and found identical before the switch; its scenario checks pass unchanged.
 - **26 Nov 2026. Engine taken out of Skeet VR.** Done by slicing Skeet's own text into the
   engine, so behaviour could not drift; all of Skeet's scenario checks pass on it
-  unchanged. Fruit Slicer VR is left on its own code until Skeet has been tried on a phone.
+  unchanged.
 - **26 Nov 2026. "Easy on the arm" on by default: failed.** With the crosshair where you
   look and the hand only nudging it, the player's report was that the hand "doesn't track".
   Now an option, off unless chosen.

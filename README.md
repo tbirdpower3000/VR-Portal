@@ -63,7 +63,7 @@ the motion sensors and the lenses are not there.
 
 ## Versions
 
-- **1.0.0** (26 Nov 2026): first version, taken out of Skeet VR v0.13. Adds `VRE.mirror`
+- **1.0.0** (26 Nov 2026): first version, taken out of Skeet VR v0.13. Used by Skeet VR from v0.14 and Fruit Slicer VR from v0.13. Adds `VRE.mirror`
   (the two eyes written once) and `VRE.subdivide` (the hand search's parts from one rule).
 
 ## Credits and licence
