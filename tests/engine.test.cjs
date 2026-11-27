@@ -34,7 +34,7 @@ const server = http.createServer((req, res) => {
     const out = [], ok = (name, pass, got) => out.push({ name, pass: !!pass, got });
     const near = (a, b, tol) => Math.abs(a - b) <= (tol || 1e-6);
     ok('engine has a version', /^\d+\.\d+\.\d+$/.test(VRE.version), VRE.version);
-    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'Motion', 'camera', 'lensChoice', 'hands', 'lookGate', 'fileStore', 'recorder', 'sound'].every((k) => VRE[k]));
+    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'Motion', 'camera', 'lensChoice', 'hands', 'steady', 'glide', 'handGuard', 'lookGate', 'fileStore', 'recorder', 'sound'].every((k) => VRE[k]));
     ok('mirror calls left then right', JSON.stringify(VRE.mirror((s) => s)) === '[-1,1]');
     ok('subdivide(0) is the whole picture', JSON.stringify(VRE.subdivide(0)) === '[{"s":1,"cx":0.5,"cy":0.5}]');
     const g = VRE.subdivide(1).map((c) => [c.cx, c.cy]);
@@ -72,6 +72,16 @@ const server = http.createServer((req, res) => {
     ok('lookGate: a repeated time, an earlier time and a repeated picture are all turned away', lg(1000, 1) && !lg(1000, 2) && !lg(990, 2) && !lg(1020, 1));
     let n60 = 0, n30 = 0; const lg2 = VRE.lookGate(); for (let i = 1; i <= 120; i++) if (lg2(5000 + i * 16.67, i)) n60++; const lg3 = VRE.lookGate(); for (let i = 1; i <= 120; i++) if (lg3(5000 + i * 16.67, i, true)) n30++;
     ok('lookGate: 60 a second when the view keeps up, 30 when it is slow', n60 >= 118 && n30 >= 58 && n30 <= 62, n60 + ',' + n30);
+    { const sf = VRE.steady(1, 20), gg = { x: 0.3, v: 0 }; let sd = 7, mxs = 0, pv = 0.3; const rn = () => ((sd = (sd * 16807) % 2147483647) / 2147483647 - 0.5) * 2;
+      for (let i = 0; i < 90; i++) { if (i % 2 === 0) sf.f(0.3 + rn() * 0.004 + (i === 40 ? 0.05 : 0), i * 16.67); const xx = VRE.glide(gg, sf.f ? gg.x + (0.3 - gg.x) : 0.3, 0.03, 1 / 60); if (i > 20) mxs = Math.max(mxs, Math.abs(xx - pv)); pv = xx; }
+      const sf2 = VRE.steady(1, 20); let worst = 0, last = 0.3; for (let i = 0; i < 60; i++) { const y = sf2.f(0.3 + rn() * 0.004 + (i === 30 ? 0.05 : 0), i * 33.3); if (i > 10) worst = Math.max(worst, Math.abs(y - last)); last = y; }
+      ok('steady: a trembling still hand with a 5% spike moves the cleaned value under 0.2% a sighting', worst < 0.002, (worst * 100).toFixed(3) + '%');
+      const g1 = { x: 0, v: 0 }; let past = 0, top = 0, p1 = 0; for (let i = 0; i < 200; i++) { const xx = VRE.glide(g1, 1, 0.11, 1 / 60, 2.6); if (xx > 1 + 1e-9) past++; top = Math.max(top, (xx - p1) * 60); p1 = xx; }
+      ok('glide: arrives, never passes the target, keeps under the top speed', Math.abs(g1.x - 1) < 1e-3 && past === 0 && top <= 2.6 + 1e-6, g1.x.toFixed(4) + ' ' + past + ' ' + top.toFixed(2));
+      const hg = VRE.handGuard(); const seq = [hg.sighting(0, 0.5, 0.5, 0.1), hg.sighting(33, 0.51, 0.5, 0.1), hg.sighting(66, 0.9, 0.5, 0.1), hg.sighting(99, 0.52, 0.5, 0.1), hg.sighting(132, 0.9, 0.5, 0.1), hg.sighting(165, 0.9, 0.5, 0.1), hg.sighting(198, 0.9, 0.5, 0.1), hg.sighting(231, 0.91, 0.5, 0.1)];
+      ok('handGuard: one false jump is refused, a hand that really moved is taken up afresh', seq.join() === 'again,ok,doubt,ok,doubt,doubt,again,ok', seq.join());
+      const pp = [hg.pinch(true), hg.pinch(false), hg.pinch(true), hg.pinch(true), hg.pinch(false), hg.pinch(false)];
+      ok('handGuard: a pinch, and its release, must be seen twice running', pp.join() === 'false,false,false,true,true,false', pp.join()); }
     const m = VRE.med3(); m.f(1); m.f(9); ok('median of three drops a one-frame spike', m.f(1) === 1);
     VRE.store.set('vrEngineTest', { a: 1 });
     ok('saved settings come back', VRE.store.get('vrEngineTest', null).a === 1 && VRE.store.get('vrEngineMissing', 7) === 7);

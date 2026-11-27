@@ -11,6 +11,7 @@
 //   VRE.camera()         opening the rear camera (the player's choice of lens, 60 pictures a second, recovery)
 //   VRE.lensChoice()     the Auto / Fisheye / Regular choice on a setup page
 //   VRE.hands()          the hand finder (graphics chip first, processor if not; looking at part of the picture)
+//   VRE.steady() VRE.glide() VRE.handGuard()   steady, continuous hand control: cleaned sightings, gliding movement, false input refused
 //   VRE.lookGate()       when to look for the hand: never a repeated time, at most so many times a second, fewer when the view is slow
 //   VRE.fileStore()      large data files kept in the phone's own store after the first download
 //   VRE.recorder()       keeps what the hand finder saw during play (points, no picture), for tuning against a real hand
@@ -22,7 +23,7 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '1.4.0' };
+  const VRE = { version: '1.5.0' };
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -470,6 +471,72 @@
       handSys.swapping = false;
     }
     return { handSys, errText, loadHands, handSwap, roi, roiSource, roiAfter, get lm() { return landmarker; } };
+  };
+
+  // ---------- steady, continuous hand control ----------
+  // The hand tells the software what to do; it does not hold the thing it moves. Three pieces, proved in the atlas
+  // (v15mk2.66) and copied from it unchanged:
+  //   VRE.steady(minCut, beta)   cleans each sighting: the middle of the last three (drops a one-sighting spike), then a
+  //                              One Euro filter. f(value, now) gives the cleaned value; .speed how fast it is moving.
+  //   VRE.glide(s, to, tau, dt, top)   moves s.x toward `to` every picture, smoothly and never past it; s is { x, v }.
+  //                              Use it for a cursor (tau about 0.03 s) and for anything the hand orders about: add the
+  //                              hand's movement to a wanted value and glide the real thing there (tau about 0.11 s).
+  //   VRE.handGuard(opts)        refuses false input: a sighting that jumps or changes size too much, a pinch seen once.
+  VRE.steady = function (minCut, beta) {
+    let x = null, dx = 0, t = 0, a1 = 0, a2 = 0, n = 0;
+    const al = (c, dt) => { const r = 2 * Math.PI * c * dt; return r / (r + 1); };
+    return {
+      get speed() { return dx; },
+      reset() { x = null; n = 0; },
+      f(v, now) {
+        const m = n < 2 ? v : Math.max(Math.min(a1, a2), Math.min(Math.max(a1, a2), v)); // the middle of the last three
+        a1 = a2; a2 = v; n++;
+        if (x === null || now - t > 250) { x = m; dx = 0; t = now; return x; }
+        const dt = Math.max(0.001, (now - t) / 1000);
+        t = now;
+        dx += ((m - x) / dt - dx) * al(1, dt);
+        x += (m - x) * al(minCut + beta * Math.abs(dx), dt);
+        return x;
+      },
+    };
+  };
+  VRE.glide = function (s, to, tau, dt, top) {
+    const w = 2 / Math.max(1e-4, tau), k = w * dt, e = 1 / (1 + k + 0.48 * k * k + 0.235 * k * k * k);
+    let ch = s.x - to;
+    if (top) { const lim = top * tau; ch = Math.max(-lim, Math.min(lim, ch)); to = s.x - ch; }
+    const tmp = (s.v + w * ch) * dt;
+    s.v = (s.v - w * tmp) * e;
+    let out = to + (ch + tmp) * e;
+    if ((to - s.x > 0) === (out > to)) { out = to; s.v = 0; } // would pass it: stop on it
+    return (s.x = out);
+  };
+  // const guard = VRE.handGuard();  each sighting:
+  //   const how = guard.sighting(now, u, v, palmWidth);   'ok' use it · 'doubt' do not use it (the hand is where it was)
+  //                                                        · 'again' the hand has really moved or was just found: start afresh
+  //   const pinching = guard.pinch(closedNow);            true/false, changed only when seen twice running
+  VRE.handGuard = function (opts) {
+    const o = Object.assign({ palms: 2.5, floor: 0.12, grow: 1.6, shrink: 0.55, patience: 2, pinchTwice: 2, gap: 200 }, opts || {});
+    let lu = 0, lv = 0, ls = 0, lt = -1e9, doubt = 0, pinch = false, pn = 0;
+    return {
+      refused: 0,
+      sighting(now, u, v, size) {
+        const ds = now - lt;
+        if (!(ds > 0 && ds < o.gap) || !(ls > 0)) { lu = u; lv = v; ls = size; lt = now; doubt = 0; return 'again'; }
+        const far = Math.hypot(u - lu, v - lv) > Math.max(o.floor, o.palms * ls) * Math.max(1, ds / 33), odd = size > ls * o.grow || size < ls * o.shrink;
+        if (far || odd) {
+          if (++doubt <= o.patience) { this.refused++; lt = now; return 'doubt'; }
+          lu = u; lv = v; ls = size; lt = now; doubt = 0; return 'again';
+        }
+        doubt = 0; lu = u; lv = v; ls += (size - ls) * 0.4; lt = now;
+        return 'ok';
+      },
+      pinch(closed) {
+        if (closed === pinch) pn = 0;
+        else if (++pn >= o.pinchTwice) { pinch = closed; pn = 0; }
+        return pinch;
+      },
+      reset() { lt = -1e9; doubt = 0; pinch = false; pn = 0; },
+    };
   };
 
   // ---------- when to look for the hand ----------
