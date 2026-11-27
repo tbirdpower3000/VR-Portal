@@ -16,8 +16,9 @@
 //   VRE.fileStore()      large data files kept in the phone's own store after the first download
 //   VRE.recorder()       keeps what the hand finder saw during play (points, no picture), for tuning against a real hand
 //   VRE.sound()          tones and noise, placed left or right
-// It is a plain script with no build step. three.js must be loaded before it. Each game loads one fixed version of this
-// file (the folder name, v1), so a change here reaches a game only when that game is moved to the new version.
+// It is a plain script with no build step. three.js must be loaded before it. Each game loads this file from the
+// folder v1. Additions that leave existing parts working as they did (1.1, 1.2, ...) are made here in place and reach
+// every game on its next load; a change that would break a game goes in a new folder (v2) that games move to one by one.
 (function () {
   'use strict';
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
@@ -315,7 +316,8 @@
 
   // ---------- the rear camera ----------
   // vid: the page's <video>; plainKey: the name under which "leave this phone on the ordinary camera" is remembered;
-  // info: an object that is given .cam (the camera's name) and .camFps (pictures a second it settled on)
+  // info: an object that is given .cam (the camera's name), .camFps (pictures a second it settled on), .camLens (the lens
+  // asked for) and .camWide (whether the widest camera was found and used)
   // lens: a function giving the player's choice of lens: 'auto' (the widest, unless it has failed twice on this phone),
   // 'wide' (always try the widest, the fisheye view) or 'regular' (the ordinary rear camera, not zoomed out)
   VRE.LENSES = ['auto', 'wide', 'regular'];
@@ -326,7 +328,7 @@
     return () => { const r = radios.find((x) => x.checked); return r && VRE.LENSES.includes(r.value) ? r.value : 'auto'; };
   };
   VRE.camera = function ({ vid, plainKey, info, lens }) {
-    // One rear camera is opened, and always the one with the widest view. The phone lists its rear cameras by name once the
+    // One rear camera is opened: the widest one when the fisheye lens is chosen (or Auto has not seen it fail). The phone lists its rear cameras by name once the
     // camera is allowed. A separate ultra-wide (0.5x) camera is taken first; failing that, a combined camera ("Triple",
     // "Dual Wide") that can zoom out to the ultra-wide lens; failing that, the ordinary one. Whichever opens is then zoomed
     // out as far as it goes, and a candidate is kept only if it really is a rear camera.

@@ -28,6 +28,10 @@ had to be made twice. That shared half now lives here once.
 | `VRE.OneEuro`, `VRE.med3`, `VRE.Motion` | The filters that steady a hand, and the atlas's tracker for a moving one |
 | `VRE.camera()`, `VRE.lensChoice()` | The rear camera: the player's choice of lens (Auto, Fisheye, Regular), 60 pictures a second, recovery when it gives no picture |
 | `VRE.hands()` | The hand finder: graphics chip first, processor if not; looks at a part of the picture that follows the hand |
+| `VRE.steady`, `VRE.glide`, `VRE.handGuard` | Steady, continuous hand control: cleaned sightings, movement that glides and never overshoots, false input refused |
+| `VRE.lookGate()` | When to look for the hand: never a repeated time, at most 60 times a second, 30 when the view is slow |
+| `VRE.fileStore()` | Large data files kept in the phone's own store after the first download |
+| `VRE.recorder()` | Keeps what the hand finder saw during play (points, no picture), for tuning against a real hand |
 | `VRE.sound()` | Tones and noise, placed left or right |
 
 Still in each game, not yet shared: head tracking and the rotation-lock handling, the
