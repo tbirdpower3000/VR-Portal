@@ -63,6 +63,7 @@ the motion sensors and the lenses are not there.
 
 ## Versions
 
+- **1.4.0** (27 Nov 2026): Two pieces proved in the atlas. `VRE.lookGate()` says when to look for the hand: never with a repeated time (MediaPipe refuses every picture after one), at most 60 times a second, and 30 while the view is running slow, so hand finding no longer takes the time the picture needs. `VRE.fileStore(name)` keeps large data files in the browser's Cache Storage after the first download, so they reopen at once, offline, and need not be held in memory.
 - **1.3.0** (26 Nov 2026): `VRE.recorder()`, which keeps what the hand finder saw during play (the hand's 21 points, where the head pointed, named game moments; no picture) so tracking changes can be tried against a real hand. `tests/hand-report.cjs FILE` prints what a recording says: looks a second, how often the hand was lost, how much a still hand shakes, jumps, and the range of the thumb reading.
 - **1.2.0** (26 Nov 2026): `VRE.Motion`, the Planetary Modeling Atlas's tracker for a moving hand, copied from the atlas unchanged: it leads a fast hand by up to 60 ms to cancel the camera's delay, stops leading when the hand brakes, and asks for more smoothing while a nearly still hand jitters.
 - **1.1.0** (26 Nov 2026): a choice of camera lens for the player, `VRE.lensChoice()`: Auto, Fisheye (the widest) or Regular, kept for every game. `VRE.camera()` takes it as `lens`; a game that does not pass one behaves as before.

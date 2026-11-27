@@ -34,7 +34,7 @@ const server = http.createServer((req, res) => {
     const out = [], ok = (name, pass, got) => out.push({ name, pass: !!pass, got });
     const near = (a, b, tol) => Math.abs(a - b) <= (tol || 1e-6);
     ok('engine has a version', /^\d+\.\d+\.\d+$/.test(VRE.version), VRE.version);
-    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'Motion', 'camera', 'lensChoice', 'hands', 'recorder', 'sound'].every((k) => VRE[k]));
+    ok('every part is there', ['mirror', 'subdivide', 'store', 'qr', 'screen', 'lens', 'textPlane', 'drawText', 'OneEuro', 'med3', 'Motion', 'camera', 'lensChoice', 'hands', 'lookGate', 'fileStore', 'recorder', 'sound'].every((k) => VRE[k]));
     ok('mirror calls left then right', JSON.stringify(VRE.mirror((s) => s)) === '[-1,1]');
     ok('subdivide(0) is the whole picture', JSON.stringify(VRE.subdivide(0)) === '[{"s":1,"cx":0.5,"cy":0.5}]');
     const g = VRE.subdivide(1).map((c) => [c.cx, c.cy]);
@@ -68,6 +68,10 @@ const server = http.createServer((req, res) => {
     ok('recorder: nothing kept before start or after stop', idle === 0 && J.f.length === 2);
     ok('recorder: a found hand is 7 + 42 + 63 + 1 + extras numbers, a lost one 7', J.f[0].length === 7 + 42 + 63 + 1 + 1 && J.f[1].length === 7, J.f[0].length + ',' + J.f[1].length);
     ok('recorder: values survive as whole numbers', J.f[0][1] === 70 && J.f[0][3] === 7071 && J.f[0][7] === 5000 && J.f[0][8] === 2500 && J.f[0][J.f[0].length - 1] === 600 && J.e[0][1] === 'shot' && J.meta.game === 'test' && J.meta.engine === VRE.version);
+    const lg = VRE.lookGate({ max: 60, slowMax: 30 });
+    ok('lookGate: a repeated time, an earlier time and a repeated picture are all turned away', lg(1000, 1) && !lg(1000, 2) && !lg(990, 2) && !lg(1020, 1));
+    let n60 = 0, n30 = 0; const lg2 = VRE.lookGate(); for (let i = 1; i <= 120; i++) if (lg2(5000 + i * 16.67, i)) n60++; const lg3 = VRE.lookGate(); for (let i = 1; i <= 120; i++) if (lg3(5000 + i * 16.67, i, true)) n30++;
+    ok('lookGate: 60 a second when the view keeps up, 30 when it is slow', n60 >= 118 && n30 >= 58 && n30 <= 62, n60 + ',' + n30);
     const m = VRE.med3(); m.f(1); m.f(9); ok('median of three drops a one-frame spike', m.f(1) === 1);
     VRE.store.set('vrEngineTest', { a: 1 });
     ok('saved settings come back', VRE.store.get('vrEngineTest', null).a === 1 && VRE.store.get('vrEngineMissing', 7) === 7);
@@ -76,6 +80,17 @@ const server = http.createServer((req, res) => {
     ok('a text sign is a mesh with a canvas', t.isMesh && t.userData.c.width === 200 && t.userData.last.includes('Hello'));
     return out;
   });
+  // the file store: a first read downloads and keeps the file, a second is served from the store, keep() forgets the rest
+  let asked = 0; page.on('request', (q) => { if (q.url().endsWith('/cell.json')) asked++; });
+  const fsr = await page.evaluate(async () => {
+    const f = VRE.fileStore('vr-engine-test'); await f.clear();
+    const a = await (await f.get('../cell.json')).json(); await new Promise((r) => setTimeout(r, 300));
+    const had = await f.has('../cell.json'); const b = await (await f.get('../cell.json')).json();
+    await f.keep([]); const after = await f.has('../cell.json'); await f.clear();
+    return { same: a.version === b.version && !!a.version, had, after };
+  });
+  r.push({ name: 'fileStore: a file is kept after its first read and served from the store after', pass: fsr.same && fsr.had, got: JSON.stringify(fsr) });
+  r.push({ name: 'fileStore: keep() forgets files not on the list', pass: fsr.after === false, got: String(fsr.after) });
   fs.mkdirSync(OUT, { recursive: true });
   const shot = path.join(OUT, 'demo.png'); await page.waitForTimeout(400); await page.screenshot({ path: shot });
   let failed = 0;

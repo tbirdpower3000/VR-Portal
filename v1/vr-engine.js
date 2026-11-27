@@ -11,6 +11,8 @@
 //   VRE.camera()         opening the rear camera (the player's choice of lens, 60 pictures a second, recovery)
 //   VRE.lensChoice()     the Auto / Fisheye / Regular choice on a setup page
 //   VRE.hands()          the hand finder (graphics chip first, processor if not; looking at part of the picture)
+//   VRE.lookGate()       when to look for the hand: never a repeated time, at most so many times a second, fewer when the view is slow
+//   VRE.fileStore()      large data files kept in the phone's own store after the first download
 //   VRE.recorder()       keeps what the hand finder saw during play (points, no picture), for tuning against a real hand
 //   VRE.sound()          tones and noise, placed left or right
 // It is a plain script with no build step. three.js must be loaded before it. Each game loads one fixed version of this
@@ -20,7 +22,7 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '1.3.0' };
+  const VRE = { version: '1.4.0' };
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -468,6 +470,65 @@
       handSys.swapping = false;
     }
     return { handSys, errText, loadHands, handSwap, roi, roiSource, roiAfter, get lm() { return landmarker; } };
+  };
+
+  // ---------- when to look for the hand ----------
+  // Looking for the hand takes several milliseconds of the same time the picture is drawn in, and a picture that
+  // arrives late when the head turns is what makes VR hard to bear. So the head comes first. The gate says whether
+  // to look now:
+  //   - never with a time that is not later than the last one (after a repeated time MediaPipe refuses every later
+  //     picture; two views drawn in one frame did exactly this in the atlas);
+  //   - never twice for the same camera picture;
+  //   - at most `max` times a second (default 60), and at most `slowMax` (default 30) while the view is running slow.
+  //   const gate = VRE.lookGate({ max: 60, slowMax: 30 });   if (gate(now, vid.currentTime, viewIsSlow)) detect...
+  VRE.lookGate = function (opts) {
+    const o = Object.assign({ max: 60, slowMax: 30 }, opts || {});
+    let lastNow = -Infinity, lastPic = -1;
+    const gate = (now, picTime, slow) => {
+      if (!(now > lastNow) || picTime === lastPic) return false;
+      if (now - lastNow < 1000 / (slow ? o.slowMax : o.max) - 2) return false; // 2 ms of give, so 60 a second passes at 60
+      lastNow = now; lastPic = picTime; gate.looks++;
+      return true;
+    };
+    gate.looks = 0;
+    gate.reset = () => { lastNow = -Infinity; lastPic = -1; };
+    return gate;
+  };
+
+  // ---------- the phone's own store of downloaded files ----------
+  // For large data files (a world's maps, a level). The first time a file is asked for it is downloaded and kept in the
+  // browser's Cache Storage; after that it is read from there: at once, without the network, and without the page
+  // holding it in memory between uses. Each time a stored file is read, the site is asked in the background whether
+  // it has changed; a newer file replaces the stored one and is used from the next read. Where the store is not
+  // allowed (private browsing, a page opened from a file), it simply downloads as usual.
+  //   const files = VRE.fileStore('my-game-v1');   const r = await files.get('data/level1.json');   const d = await r.json();
+  //   files.keep(['a.json', 'b.json'])  forgets every stored file not in the list;  files.clear()  forgets them all
+  VRE.fileStore = function (name) {
+    const can = () => typeof caches !== 'undefined' && /^https?:$/.test(location.protocol);
+    const tag = (r) => r.headers.get('etag') || r.headers.get('last-modified');
+    const abs = (u) => new URL(u, location.href).href;
+    return {
+      async get(url) {
+        if (!can()) return fetch(url);
+        try {
+          const store = await caches.open(name), hit = await store.match(url);
+          if (hit) {
+            fetch(url, { cache: 'no-cache' }).then((r) => { if (r.ok && tag(r) !== tag(hit)) return store.put(url, r); }).catch(() => {});
+            return hit;
+          }
+          const r = await fetch(url);
+          if (!r.ok) return r;
+          // read whole first, then stored: storing a copy while the page reads the original can stall
+          const buf = await r.arrayBuffer(), head = { 'content-type': r.headers.get('content-type') || 'application/octet-stream' };
+          ['etag', 'last-modified'].forEach((h) => r.headers.get(h) && (head[h] = r.headers.get(h)));
+          store.put(url, new Response(buf, { headers: head })).catch(() => {});
+          return new Response(buf, { headers: head });
+        } catch (e) { return fetch(url); }
+      },
+      async has(url) { try { return can() && !!(await (await caches.open(name)).match(url)); } catch (e) { return false; } },
+      async keep(urls) { try { if (!can()) return; const want = urls.map(abs), store = await caches.open(name); for (const k of await store.keys()) if (!want.includes(k.url)) await store.delete(k); } catch (e) {} },
+      async clear() { try { if (can()) await caches.delete(name); } catch (e) {} },
+    };
   };
 
   // ---------- recording a hand, for tuning ----------
