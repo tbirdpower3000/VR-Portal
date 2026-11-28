@@ -3,7 +3,7 @@
   "parent": "tbirdpower3000",
   "children": [
     "v1/vr-engine.js",
-    "v2/vr-engine.js (2.0.0: the spatial home)",
+    "v2/vr-engine.js (2.1.0: the spatial home)",
     "home.html",
     "apps.json",
     "examples/v2-head.html",

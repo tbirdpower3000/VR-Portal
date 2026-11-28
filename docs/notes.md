@@ -88,3 +88,12 @@ Decisions, and why:
 Target sizes: the wall in `examples/v2-pointer.html` has discs of 1.5 to 8 degrees and keeps hits, misses and time per size (also saved as `vrV2PointerRuns`). The 3 degree floor is from other people's measurements; this is how to get our own.
 
 Unknown until tried on the phone: whether head-aim with a low pinch is comfortable for the 7 degree icons; whether the pinch reads well with the hand low in the widest camera's picture; frame rate with the camera picture behind everything and the hand finder running; whether 100 degrees is the right figure for the iPhone's widest lens; whether iPhone Safari gives 60 camera pictures a second (the Status window shows what it gave).
+
+## 28 Nov 2026: first try of the home screen on the phone (engine 2.1.0)
+
+A screenshot from the iPhone, rotation lock on, phone on its side. What it showed:
+- **It runs.** Camera picture behind, dimmed; the eight icons; both eyes; the view turned a quarter as it should be.
+- **The line between the eyes was wrong.** It belonged to the page, not to the turned view, so it ran down the page through both eyes. It is now inside the view and turns with it. A check holds a made-up phone on its side and measures where the line lies. (The same fault was in `examples/v2-head.html`; fixed there too.)
+- **Asked for: a better way to open pages, as tiles to interact with.** Icons are now tiles, and a page's tile opens a card (what it is, where it lives, Open / Not now). Not done, because a browser cannot do it: showing a live web page as a surface in the 3D view. The way to have a game run inside the home, with no page change, is to build it as an app on this engine; none is yet.
+
+Still to learn from the phone: whether the room is the right way up through the viewer with rotation lock on (the picture is turned with the view, as Skeet's "see my room" does, but nobody has said yet that it looks right); pinch pick rates by target size (the pointer demo's table); pictures a second with the camera behind everything.

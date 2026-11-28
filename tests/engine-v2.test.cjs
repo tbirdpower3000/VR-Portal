@@ -231,7 +231,7 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
   const H = () => pg.evaluate(() => { const K = window.__home; return { icons: K.home.icons.length, names: K.home.icons.map((i) => i.app.name).join(), wins: K.wins.list.map((w) => w.id).join(), v: K.pass.value, live: K.pass.state.live, plane: K.pass.plane.visible, sky: K.pass.sky.visible, skyOp: K.pass.sky.material.opacity, bright: K.pass.plane.material.color.r, across: K.home.icons.map((i) => +K.sh.pointer.degOf(i.target).toFixed(1)), gap: Math.abs(K.home.icons[0].yaw - K.home.icons[1].yaw) * 57.29578 }; });
   await pg.waitForFunction(() => window.__home.pass.state.live, null, { timeout: 8000 });
   let h0 = await H();
-  ok('home: the icons come from apps.json, each well over 3 degrees across and 11 degrees apart', h0.icons === 8 && h0.across.every((d) => d >= 7) && near(h0.gap, 11, 0.01), h0.names + ' ' + h0.across[0] + ' ' + h0.gap.toFixed(1));
+  ok('home: the tiles come from apps.json, each well over 3 degrees across (7.5 by 11) and 12.6 degrees apart', h0.icons === 8 && h0.across.every((d) => d >= 7.4) && near(h0.gap, 12.6, 0.01), h0.names + ' ' + h0.across[0] + ' ' + h0.gap.toFixed(1));
   ok('see-through starts as the room dimmed: the camera picture is shown darker, the sky is not', h0.live && h0.plane && !h0.sky && near(h0.v, 0.5, 1e-9) && h0.bright < 0.5 && h0.bright > 0.2, JSON.stringify({ v: h0.v, bright: +h0.bright.toFixed(2) }));
   await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.app === 'surroundings').mesh"); await pinch(pg, true); await pinch(pg, false);
   let h1 = await H();
@@ -252,9 +252,37 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
   await pg.screenshot({ path: path.join(OUT, 'v2-home.png') });
   ok('home: no errors on the page', pg.errors.length === 0, pg.errors.join(' | '));
   await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.name === 'Skeet VR').mesh"); await pinch(pg, true); await pinch(pg, false);
+  await pg.waitForTimeout(500);
+  const card = await pg.evaluate(() => [window.__home.wins.list.map((w) => w.id).join(), window.__home.home.shown, location.pathname]);
+  ok('picking a game\'s tile opens its card first; nothing is left yet', card[0] === 'card' && card[1] === false && /home\.html$/.test(card[2]) && asked.length === 0, card.join(' '));
+  await lookAt(pg, '__home', "K.wins.get('card').panel", (520 + 210) / 1000 - 0.5, 0.28 - (84 + 330 + 55) / 1000); await pinch(pg, true); await pinch(pg, false);
+  await pg.waitForTimeout(400);
+  const notNow = await pg.evaluate(() => [window.__home.wins.list.length, window.__home.home.shown]);
+  ok('"Not now" closes the card and the tiles come back', notNow[0] === 0 && notNow[1] === true && asked.length === 0, notNow.join());
+  await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.name === 'Skeet VR').mesh"); await pinch(pg, true); await pinch(pg, false);
+  await lookAt(pg, '__home', "K.wins.get('card').panel", (60 + 210) / 1000 - 0.5, 0.28 - (84 + 330 + 55) / 1000); await pinch(pg, true); await pinch(pg, false);
   await pg.waitForTimeout(1200);
-  ok('picking a game icon goes to the game\'s page, saying it came from home', asked.some((u) => /Skeet-Game\/\?from=home$/.test(u)), asked.join(' '));
+  ok('"Open" goes to the game\'s page, saying it came from home', asked.some((u) => /Skeet-Game\/\?from=home$/.test(u)), asked.join(' '));
   await pg.context().close();
+
+  // ---- rotation lock: an upright page with the phone on its side. The line between the eyes must turn with the view ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true, permissions: ['camera'] });
+    const pt = await ctx.newPage(); const perr = []; pt.on('pageerror', (e) => perr.push(e.message));
+    await pt.route('**/three.min.js', (r) => r.fulfill({ path: threeJs(), contentType: 'text/javascript' }));
+    await pt.route('**/vision_bundle.mjs*', (r) => r.fulfill({ path: path.join(__dirname, 'fake-hands-v2.mjs'), contentType: 'text/javascript' }));
+    await pt.addInitScript(() => { try { delete DeviceOrientationEvent.requestPermission; } catch (e) {} window.__fake = { on: false }; });
+    await pt.goto(base + '/home.html', { waitUntil: 'load' });
+    await pt.waitForFunction(() => window.__home); await pt.click('#go'); await pt.waitForFunction(() => window.__home.sh.S.on);
+    // the phone lying on its side: its right-hand edge points up
+    await pt.evaluate(() => window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 0, beta: 0, gamma: -90 })));
+    await pt.waitForTimeout(300);
+    const box = await pt.evaluate(() => { const m = document.getElementById('vreMid').getBoundingClientRect(), v = document.getElementById('vreView').getBoundingClientRect(), S = window.__home.sh.S; return { turned: S.turned, rot: S.rot, mw: m.width, mh: m.height, my: m.top + m.height / 2, vy: v.top + v.height / 2, vw: v.width, vh: v.height }; });
+    ok('rotation lock: the view is turned a quarter, and the line between the eyes turns with it (across the page, at its middle)', box.turned && Math.abs(box.rot) === 90 && box.mw > 300 && box.mh < 4 && near(box.my, 426, 2) && near(box.vw, 393, 1) && near(box.vh, 852, 1), JSON.stringify(box));
+    fs.mkdirSync(OUT, { recursive: true }); await pt.waitForTimeout(3600); await pt.screenshot({ path: path.join(OUT, 'v2-home-turned.png') });
+    ok('rotation lock: no errors on the page', perr.length === 0, perr.join(' | '));
+    await ctx.close();
+  }
 
   let failed = 0;
   for (const c of results) if (!c.pass) failed++;

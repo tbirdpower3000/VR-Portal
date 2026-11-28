@@ -32,7 +32,7 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '2.0.0' };
+  const VRE = { version: '2.1.0' };
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -1154,7 +1154,7 @@
         : e.kind === 'window' && (typeof e.app !== 'string' || !e.app) ? 'a window needs an app name'
         : '';
       if (why) { skipped.push({ index: i, name: e && e.name, why }); try { console.warn('apps.json: entry ' + i + ' left out (' + why + ')'); } catch (x) {} return; }
-      apps.push({ name: e.name.trim().slice(0, 24), icon: typeof e.icon === 'string' && e.icon ? [...e.icon].slice(0, 2).join('') : e.name.trim()[0].toUpperCase(), kind: e.kind, url: e.url, app: e.app, color: /^#[0-9a-f]{6}$/i.test(e.color || '') ? e.color : '#35507a' });
+      apps.push({ about: typeof e.about === 'string' ? e.about.trim().slice(0, 90) : '', name: e.name.trim().slice(0, 24), icon: typeof e.icon === 'string' && e.icon ? [...e.icon].slice(0, 2).join('') : e.name.trim()[0].toUpperCase(), kind: e.kind, url: e.url, app: e.app, color: /^#[0-9a-f]{6}$/i.test(e.color || '') ? e.color : '#35507a' });
     });
     return { apps, skipped };
   };
@@ -1170,8 +1170,32 @@
   // 11 degrees from one to the next, so the ring cannot rest on two at once. Look at one and pinch: a game opens as its
   // own page; a window app opens a window.
   // const home = VRE.home({ scene, pointer, apps, onPage(url, app), onWindow(app) });   home.show(true / false)
+  // With shape: 'tile' each app is a card in place of a round icon: its sign, its name and a line saying what it is,
+  // 11 degrees wide and 7.5 tall, so there is something to read before choosing.
   VRE.home = function (o) {
-    const R = o.R || 1.5, PER_ROW = o.perRow || 4, STEP = 11 * D, ROW = 11.5 * D, TOP = (o.pitch != null ? o.pitch : -1) * D, ICON = VRE.sizeAt(7, R) / 2;
+    const TILE = o.shape === 'tile';
+    const R = o.R || 1.5, PER_ROW = o.perRow || 4, STEP = (TILE ? 12.6 : 11) * D, ROW = (TILE ? 9.4 : 11.5) * D, TOP = (o.pitch != null ? o.pitch : -1) * D, ICON = VRE.sizeAt(7, R) / 2;
+    const TW = VRE.sizeAt(11, R), TH = VRE.sizeAt(7.5, R);
+    const card = (app) => {
+      const c = document.createElement('canvas'); c.width = 440; c.height = 300;
+      const x = c.getContext('2d'), rr = (a, b, w, h, r) => { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); };
+      const g = x.createLinearGradient(0, 0, 0, 300);
+      g.addColorStop(0, 'rgba(40,58,92,0.86)'); g.addColorStop(1, 'rgba(10,17,32,0.86)');
+      rr(4, 4, 432, 292, 30); x.fillStyle = g; x.fill(); x.lineWidth = 4; x.strokeStyle = 'rgba(233,238,245,0.32)'; x.stroke();
+      x.fillStyle = app.color; x.beginPath(); x.arc(78, 84, 56, 0, 7); x.fill();
+      x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.font = (/[\u0000-\u00ff]/.test(app.icon[0]) ? '700 62px ' : '62px ') + 'system-ui, sans-serif'; x.fillText(app.icon, 78, 88);
+      x.textAlign = 'left'; x.fillStyle = '#e9eef5'; x.font = '600 38px "Instrument Sans", system-ui, sans-serif';
+      const words = app.name.split(' '); let l1 = '', l2 = '';
+      words.forEach((wd) => { if (!l2 && x.measureText(l1 + ' ' + wd).width < 268) l1 = (l1 + ' ' + wd).trim(); else l2 = (l2 + ' ' + wd).trim(); });
+      x.fillText(l1, 152, l2 ? 62 : 84); if (l2) x.fillText(l2, 152, 106);
+      // what it is, on up to three short lines
+      x.fillStyle = '#b8c6da'; x.font = '400 27px "Instrument Sans", system-ui, sans-serif';
+      const ab = (app.about || (app.kind === 'page' ? 'Opens as its own page' : 'Opens a window')).split(' '); let line = '', y = 176;
+      ab.forEach((wd) => { if (x.measureText(line + ' ' + wd).width > 392 && line) { if (y < 250) x.fillText(line, 26, y); y += 34; line = wd; } else line = (line + ' ' + wd).trim(); });
+      if (y < 250 + 34) x.fillText(line, 26, y);
+      return new THREE.CanvasTexture(c);
+    };
     const g = new THREE.Group(), icons = [];
     o.scene.add(g);
     const disc = (app) => {
@@ -1189,7 +1213,7 @@
     o.apps.forEach((app, i) => {
       const r = Math.floor(i / PER_ROW), inRow = Math.min(PER_ROW, o.apps.length - r * PER_ROW), k = i - r * PER_ROW;
       const yaw = (k - (inRow - 1) / 2) * STEP, pitch = TOP - r * ROW + ((rows - 1) * ROW) / 2;
-      const m = new THREE.Mesh(new THREE.CircleGeometry(ICON, 48), new THREE.MeshBasicMaterial({ map: disc(app), transparent: true, depthTest: false, depthWrite: false }));
+      const m = new THREE.Mesh(TILE ? new THREE.PlaneGeometry(TW, TH) : new THREE.CircleGeometry(ICON, 48), new THREE.MeshBasicMaterial({ map: TILE ? card(app) : disc(app), transparent: true, depthTest: false, depthWrite: false }));
       m.renderOrder = 25;
       const holder = new THREE.Group();
       holder.position.set(Math.sin(yaw) * Math.cos(pitch) * R, Math.sin(pitch) * R, -Math.cos(yaw) * Math.cos(pitch) * R);
@@ -1197,13 +1221,15 @@
       const label = VRE.textPlane(ICON * 3.2, ICON * 0.62, 384, 74);
       label.position.set(0, -ICON * 1.42, 0);
       VRE.drawText(label, [app.name], { bg: false });
+      label.visible = !TILE; // a tile carries its own name
       holder.add(m, label);
       g.add(holder);
-      const t = o.pointer.add({ object: m, hw: ICON * 1.08, round: true, kind: 'icon', pri: 1, app, on: {
-        hover(on) { m.scale.setScalar(on ? 1.16 : 1); label.material.opacity = on ? 1 : 0.8; },
+      const t = o.pointer.add({ object: m, hw: TILE ? TW / 2 : ICON * 1.08, hh: TILE ? TH / 2 : ICON * 1.08, round: !TILE, kind: 'icon', pri: 1, app, on: {
+        hover(on) { m.scale.setScalar(on ? (TILE ? 1.08 : 1.16) : 1); m.material.color.setScalar(on || !TILE ? 1 : 0.82); label.material.opacity = on ? 1 : 0.8; },
         select() { if (app.kind === 'page') { if (o.onPage) o.onPage(VRE.fromHome(app.url), app); else location.assign(VRE.fromHome(app.url)); } else if (o.onWindow) o.onWindow(app); },
       } });
       label.material.opacity = 0.8;
+      if (TILE) m.material.color.setScalar(0.82);
       icons.push({ app, mesh: m, holder, target: t, yaw, pitch });
     });
     return { group: g, icons, R, show(on) { g.visible = on; }, get shown() { return g.visible; } };
@@ -1297,13 +1323,13 @@
     if (!$('vreStyle')) {
       const st = document.createElement('style'); st.id = 'vreStyle';
       st.textContent = '#vreVr{position:fixed;inset:0;background:#000;overflow:hidden;z-index:50}#vreView{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#vreView canvas{display:block;width:100%;height:100%}' +
-        '#vreMid{position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;background:rgba(255,255,255,.35);pointer-events:none}#vreBtns{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);display:flex;gap:8px;z-index:3}' +
+        '#vreMid{position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;background:rgba(255,255,255,.35);pointer-events:none;z-index:1}#vreBtns{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);display:flex;gap:8px;z-index:3}' +
         '#vreBtns button{font:500 15px system-ui,sans-serif;color:#e9eef5;background:rgba(233,238,245,.14);border:0;border-radius:10px;padding:8px 14px}' +
         '#vreTurn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;background:rgba(7,11,20,.92);color:#e9eef5;font:1.1rem system-ui,sans-serif;z-index:2}#vreVr [hidden]{display:none!important}#vreVid{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}';
       document.head.appendChild(st);
     }
     const root = document.createElement('div'); root.id = 'vreVr'; root.hidden = true;
-    root.innerHTML = '<div id="vreView"></div><div id="vreMid"></div><div id="vreTurn" hidden>📱↻ Turn the phone sideways and put it in the viewer.</div><div id="vreBtns"><button id="vreRecenter">Recenter</button><button id="vreExit">Exit</button></div><video id="vreVid" playsinline muted></video>';
+    root.innerHTML = '<div id="vreView"><div id="vreMid"></div></div><div id="vreTurn" hidden>📱↻ Turn the phone sideways and put it in the viewer.</div><div id="vreBtns"><button id="vreRecenter">Recenter</button><button id="vreExit">Exit</button></div><video id="vreVid" playsinline muted></video>';
     (o.mount || document.body).appendChild(root);
     // the lens fitting reads its switch and size from the page; a page without them gets them, hidden, set from what was saved
     ['lensOn', 'lensSize', 'lensSizeO'].forEach((id) => { if (!$(id)) { const e = document.createElement(id === 'lensSizeO' ? 'output' : 'input'); e.id = id; if (id === 'lensOn') { e.type = 'checkbox'; e.checked = true; } if (id === 'lensSize') { e.type = 'range'; e.min = 80; e.max = 125; e.value = 100; } e.hidden = true; root.appendChild(e); } });
@@ -1311,6 +1337,9 @@
     const S = { on: false, ready: true, w: 1, h: 1, counting: false, count: 0, hands: false, why: '', stream: null };
     const { renderer, perf, pace } = VRE.screen(() => S.on);
     renderer.autoClear = false;
+    // The line between the two eyes is part of the view, not of the page: with the phone's rotation lock on the view is
+    // drawn a quarter turn round, and the line has to turn with it to stay between the lenses (it did not, at first:
+    // it ran across both eyes, seen on the phone on 28 Nov).
     $('vreView').appendChild(renderer.domElement);
     const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(78, 1, 0.05, 300);
     scene.add(camera);

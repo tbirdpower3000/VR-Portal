@@ -19,7 +19,8 @@
   /* the view is sized and turned by the engine (head.fit): with rotation lock on it is drawn a quarter turn round */
   #view { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
   #view canvas { display: block; width: 100%; height: 100%; }
-  #mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, 0.35); pointer-events: none; }
+  /* the line between the eyes is inside the view, so it turns with it when rotation lock is on */
+  #mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, 0.35); pointer-events: none; z-index: 1; }
   #btns { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); display: flex; gap: 8px; z-index: 3; }
   #turn { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; background: rgba(7, 11, 20, 0.92); z-index: 2; font-size: 1.1rem; }
   [hidden] { display: none !important; }
@@ -45,8 +46,7 @@
 </main>
 
 <div id="vr" hidden>
-  <div id="view"></div>
-  <div id="mid"></div>
+  <div id="view"><div id="mid"></div></div>
   <div id="turn" hidden>📱↻ Turn the phone sideways and put it in the viewer.</div>
   <div id="btns"><button class="quiet" id="recenter">Recenter</button><button class="quiet" id="exit">Exit</button></div>
 </div>

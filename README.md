@@ -39,7 +39,7 @@ hand-in-the-room aiming, the thumb trigger, and each game's own rules.
 
 ## v2: the spatial home
 
-`v2/vr-engine.js` (2.0.0) adds look-and-pinch, floating windows, a home screen of icons and a see-through mode, at
+`v2/vr-engine.js` (2.1.0) adds look-and-pinch, floating windows, a home screen of icons and a see-through mode, at
 phone-in-a-Cardboard quality. **Open it: [home.html](https://tbirdpower3000.github.io/VR-Portal/home.html).**
 It is v1 (1.5.0) plus the parts below, so everything above is in it. The games stay on v1 until v2 has been tried on a
 phone. None of v2 has been tried on a phone yet: its checks run in a desktop browser with a made-up camera and hand.
@@ -53,6 +53,8 @@ phone. None of v2 has been tried on a phone yet: its checks run in a desktop bro
 | `VRE.passthrough()`, `VRE.skyTexture()` | Your room through the rear camera behind everything, with a dial: room, room dimmed, or a sky in its place. The picture is the same video the hand finder reads; it is not opened twice | Surroundings, on the home screen |
 | `VRE.sound()` | Sounds can be given a place in the room (HRTF), and stay there as the head turns | window sounds |
 | `VRE.shell()` | Sets all of it up and runs it each picture in the right order, so a page is a few lines | every v2 page |
+
+**2.1.0 (28 Nov 2026), from the first try on the phone.** The thin line between the two eyes now turns with the view: with rotation lock on it ran across both eyes, where it was no help in lining the phone up with the lenses. The home screen's round icons became tiles (a sign, a name, a line saying what it is), and a game's tile now opens a card with **Open** and **Not now**; before, picking an icon left for the game's page at once. A web page cannot be drawn inside the 3D view (a browser will not paint one page into another's picture), so opening a game still means going to its page; the game shows a link back.
 
 **Adding an app** is a line in `apps.json`: `{ "name", "icon", "kind": "page", "url" }` for a game or page, or
 `"kind": "window", "app"` for a window the home page provides.

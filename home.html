@@ -18,7 +18,7 @@
 <body>
 <main id="setup">
   <h1>VR Portal home <span class="muted" id="ver"></span></h1>
-  <p class="muted">A home screen for a phone in a Cardboard viewer. Look at an icon and pinch: a game opens, or a window does. The room around you is your own, through the camera; a dial fades it down, or swaps it for a dusk sky.</p>
+  <p class="muted">A home screen for a phone in a Cardboard viewer. Look at a tile and pinch: a window opens, or a card for a game with an Open button. The room around you is your own, through the camera; a dial fades it down, or swaps it for a dusk sky.</p>
   <p><button id="go">Start</button></p>
   <p id="status" class="muted" role="status"></p>
   <label><input type="checkbox" id="lensOn" checked /> Fit the picture to the Cardboard's lenses</label>
@@ -27,6 +27,7 @@
   <h2>How it works</h2>
   <ul>
     <li><b>Aim with your head.</b> A small ring marks the middle of your view. What it rests on lights up.</li>
+    <li><b>Line it up first.</b> The thin line down the middle should sit between the two lenses, with the phone's edges even in the viewer.</li>
     <li><b>Pinch to pick</b>, thumb to index finger, with your hand low. The viewer's button does the same.</li>
     <li><b>Pinch a window's bar and turn your head</b> to move it. The dot closes it; the corner sizes it. While a window is open the icons step aside; the <b>Home</b> icon, low down, brings them back.</li>
     <li><b>Pinch and hold on empty space</b> for a second (or pick Recenter) to bring everything back to the front.</li>
@@ -66,6 +67,31 @@
     about: () => wins.open({ id: 'about', title: 'About', w: 1.0, h: 0.54, draw: (x) => text(x, ['VR Portal home: look and pinch on a phone.', 'Your head aims; your hand picks, held low.', 'Windows stay put as your head turns.', 'No eye tracking and no walking about:', 'a phone in a browser cannot sense either.', 'Built with Claude by tbirdpower3000 and contributors.']) }),
     recenter: () => { sh.head.recenter(); sh.note('Straight ahead set', 1200); },
   };
+  // A page (a game, the atlas) does not open the moment its tile is picked. A card opens first: what it is, where it
+  // lives, and two buttons. A web page cannot be drawn inside this view (a browser will not paint one page into
+  // another's 3D picture), so opening it means leaving for that page; the card says so, and the page offers the way back.
+  function pageCard(app, url) {
+    const old = wins.get('card'); if (old) old.close();
+    let host = ''; try { host = new URL(url, location.href).host; } catch (e) {}
+    const w = wins.open({ id: 'card', title: app.name, w: 1.0, h: 0.56,
+      draw(x) {
+        x.fillStyle = app.color; x.beginPath(); x.arc(110, 110, 72, 0, 7); x.fill();
+        x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = (/[\u0000-\u00ff]/.test(app.icon[0]) ? '700 84px ' : '84px ') + 'system-ui, sans-serif'; x.fillText(app.icon, 110, 116);
+        x.textAlign = 'left'; x.textBaseline = 'top'; x.fillStyle = '#e9eef5'; x.font = '400 36px ' + FONT;
+        const words = (app.about || 'Opens as its own page.').split(' '); let line = '', y = 36;
+        words.forEach((wd) => { if (x.measureText(line + ' ' + wd).width > 740 && line) { x.fillText(line, 220, y); y += 48; line = wd; } else line = (line + ' ' + wd).trim(); });
+        x.fillText(line, 220, y);
+        x.fillStyle = '#9fb0c6'; x.font = '400 28px ' + FONT; x.fillText('Opens as its own page' + (host ? ' on ' + host : '') + '. It has a link back here.', 220, y + 62);
+      },
+      spots: [
+        { id: 'open', x: 60, y: 330, w: 420, h: 110, label: 'Open', select() { sh.note('Opening ' + app.name, 900); setTimeout(() => location.assign(url), 350); } },
+        { id: 'no', x: 520, y: 330, w: 420, h: 110, label: 'Not now', select(win) { setTimeout(() => { win.close(); tidy(); }, 0); } },
+      ] });
+    w.spec.onClose = () => setTimeout(tidy, 0);
+    tidy();
+    return w;
+  }
+  let tidy = () => {};
   async function build() {
     const list = await VRE.loadApps('apps.json');
     sh = VRE.shell({ hands: () => $('useCam').checked, camera: () => $('useCam').checked, status: $('status'),
@@ -79,12 +105,11 @@
     wins = VRE.windows({ scene: sh.scene, camera: sh.camera, pointer: sh.pointer, sound: sh.sound, key: 'vrHomeWindows' });
     // The icons and the windows take turns: while a window is open the icons step aside, so nothing lies behind a
     // window to be picked by mistake, and a single Home icon, low down, closes the windows and brings the icons back.
-    const tidy = () => { const any = wins.list.length > 0; home.show(!any); dock.show(any); };
+    tidy = () => { const any = wins.list.length > 0; home.show(!any); dock.show(any); };
     const openApp = (a) => { if (!APPS[a.app]) return sh.note('That app is not here yet', 1500); const w = APPS[a.app](); if (w && w.spec && !w.spec.onClose) w.spec.onClose = () => setTimeout(tidy, 0); tidy(); };
     const dock = VRE.home({ scene: sh.scene, pointer: sh.pointer, pitch: -33, apps: VRE.readApps([{ name: 'Home', icon: '⌂', kind: 'window', app: 'home', color: '#7a5c1e' }]).apps, onWindow() { wins.closeAll(); tidy(); } });
     dock.show(false);
-    home = VRE.home({ scene: sh.scene, pointer: sh.pointer, apps: list.apps, onWindow: openApp,
-      onPage(url, app) { sh.note('Opening ' + app.name, 900); setTimeout(() => location.assign(url), 350); } });
+    home = VRE.home({ scene: sh.scene, pointer: sh.pointer, apps: list.apps, shape: 'tile', onWindow: openApp, onPage: (url, app) => pageCard(app, url) });
     if (list.failed || !list.apps.length) $('status').textContent = 'The list of apps could not be read.';
     window.__home = { sh, wins, pass, home, dock, APPS, list };
   }
