@@ -3,6 +3,9 @@
   "parent": "tbirdpower3000",
   "children": [
     "v1/vr-engine.js",
+    "v2/vr-engine.js (in the making: 2.0.0-alpha.1)",
+    "examples/v2-head.html",
+    "tests/engine-v2.test.cjs",
     "examples/demo.html",
     "tests/engine.test.cjs"
   ],

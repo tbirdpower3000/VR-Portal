@@ -37,6 +37,24 @@ had to be made twice. That shared half now lives here once.
 Still in each game, not yet shared: head tracking and the rotation-lock handling, the
 hand-in-the-room aiming, the thumb trigger, and each game's own rules.
 
+## v2, in the making: the "spatial home"
+
+`v2/vr-engine.js` is a new version being built step by step: look and pinch, floating windows, a home screen of app
+icons and a see-through mode, at phone-in-a-Cardboard quality. The games stay on v1 until v2 has been tried on a phone.
+It starts as a copy of v1 (1.5.0), so everything above is in it.
+
+| Step | What it adds | Try it | State |
+|---|---|---|---|
+| 1 | `VRE.head()`: head tracking, the rotation-lock handling and recenter, taken out of Skeet VR by slicing its own text | [examples/v2-head.html](https://tbirdpower3000.github.io/VR-Portal/examples/v2-head.html) | built; headless checks pass; not yet tried on a phone |
+| 2 | `VRE.pointer()`: reticle, hover, pinch, dwell | | to do |
+| 3 | `VRE.window()`: floating windows | | to do |
+| 4 | `VRE.home()` and `apps.json` | | to do |
+| 5 | `VRE.passthrough()` and 3D sound | | to do |
+
+What v2 cannot do, by the nature of a phone in a browser: no eye tracking (the head's direction stands in for the
+eyes), and no tracking of where you are in the room (windows will turn with your head but cannot hold their place as
+you walk).
+
 ## Using it
 
 ```html

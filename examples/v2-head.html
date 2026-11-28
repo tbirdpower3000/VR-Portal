@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>VR Portal v2: the head</title>
+<style>
+  :root { --space: #070b14; --ink: #e9eef5; --gold: #ffd88a; --blue: #7fc8ff; }
+  html, body { margin: 0; height: 100%; background: var(--space); color: var(--ink); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 18px 16px 40px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; }
+  .muted { color: #9fb0c6; }
+  button { font: inherit; color: var(--space); background: var(--gold); border: 0; border-radius: 10px; padding: 12px 22px; font-weight: 600; }
+  button.quiet { background: rgba(233, 238, 245, 0.14); color: var(--ink); padding: 8px 14px; font-weight: 500; }
+  label { display: block; margin: 8px 0; }
+  li { margin: 6px 0; }
+  a { color: var(--gold); }
+  #vr { position: fixed; inset: 0; background: #000; overflow: hidden; }
+  /* the view is sized and turned by the engine (head.fit): with rotation lock on it is drawn a quarter turn round */
+  #view { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+  #view canvas { display: block; width: 100%; height: 100%; }
+  #mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, 0.35); pointer-events: none; }
+  #btns { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); display: flex; gap: 8px; z-index: 3; }
+  #turn { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; background: rgba(7, 11, 20, 0.92); z-index: 2; font-size: 1.1rem; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="setup">
+  <h1>VR Portal v2 · step 1: the head <span class="muted" id="ver"></span></h1>
+  <p class="muted">A room that follows your head. This is the first piece of the new engine: head tracking, moved out of Skeet VR into the shared engine. Nothing to aim at yet.</p>
+  <p><button id="go">Start</button></p>
+  <p id="status" class="muted" role="status"></p>
+  <label><input type="checkbox" id="lensOn" checked /> Fit the picture to the Cardboard's lenses</label>
+  <label>Picture size <output id="lensSizeO">100%</output><br /><input type="range" id="lensSize" min="80" max="125" step="1" value="100" style="width: 100%" /></label>
+  <h2 style="font-size: 1.05rem">What to check on the phone</h2>
+  <ol>
+    <li>Press <b>Start</b>. The phone asks to use motion. Allow it. (Refuse it once, on purpose, to see the plain message; then reload.)</li>
+    <li>Put the phone in the viewer during the count of three. When it ends, the gold arrow and the word <b>FRONT</b> should be straight ahead of you.</li>
+    <li>Turn your head. The room should stay still around you: the pillars and the words LEFT, RIGHT and BEHIND stay where they are.</li>
+    <li>Face another way and press the viewer's button (or tap the screen, or <b>Recenter</b>). FRONT should jump to where you now face.</li>
+    <li>Try it with the phone's rotation lock on, too. The picture should still come out the right way up in the viewer.</li>
+  </ol>
+  <p class="muted">The sign in the room shows the pictures drawn each second. <a href="../">Back to the portal</a></p>
+</main>
+
+<div id="vr" hidden>
+  <div id="view"></div>
+  <div id="mid"></div>
+  <div id="turn" hidden>📱↻ Turn the phone sideways and put it in the viewer.</div>
+  <div id="btns"><button class="quiet" id="recenter">Recenter</button><button class="quiet" id="exit">Exit</button></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../v2/vr-engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id), D = Math.PI / 180;
+  const say = (t) => ($('status').textContent = t || '');
+  if (!window.THREE || !window.VRE) { say('The page could not load its parts. Check the connection and reload.'); return; }
+  $('ver').textContent = 'engine ' + VRE.version;
+  const TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const STEREO = new URLSearchParams(location.search).has('stereo') ? new URLSearchParams(location.search).get('stereo') !== '0' : TOUCH;
+  const S = { on: false, ready: true, w: 1, h: 1, count: 0, counting: false };
+
+  // ---------- the room ----------
+  const { renderer, perf, pace } = VRE.screen(() => S.on);
+  renderer.autoClear = false;
+  $('view').appendChild(renderer.domElement);
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(78, 1, 0.05, 200);
+  scene.add(camera);
+  const stereo = new THREE.StereoCamera();
+  stereo.eyeSep = 0.064;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.0));
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(60, 32, 16), new THREE.MeshBasicMaterial({ color: 0x0b1424, side: THREE.BackSide })));
+  const grid = new THREE.GridHelper(40, 40, 0x35507a, 0x1c2c47);
+  grid.position.y = -1.6;
+  scene.add(grid);
+  // a ring of pillars, and a word on each side, so it is plain whether the room stays still as the head turns
+  const box = new THREE.BoxGeometry(0.3, 3, 0.3), mat = new THREE.MeshLambertMaterial({ color: 0x35507a });
+  for (let i = 0; i < 12; i++) { const m = new THREE.Mesh(box, mat), a = (i / 12) * Math.PI * 2 + Math.PI / 12; m.position.set(Math.sin(a) * 6, -0.1, -Math.cos(a) * 6); scene.add(m); }
+  [['FRONT', 0], ['RIGHT', 90], ['BEHIND', 180], ['LEFT', 270]].forEach(([word, deg]) => {
+    const s = VRE.textPlane(1.6, 0.42, 640, 168);
+    s.position.set(Math.sin(deg * D) * 4, 0.9, -Math.cos(deg * D) * 4);
+    s.rotation.y = -deg * D;
+    scene.add(s);
+    VRE.drawText(s, [word]);
+  });
+  // the gold arrow on the floor points to the front
+  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.7, 3), new THREE.MeshBasicMaterial({ color: 0xffd88a }));
+  arrow.position.set(0, -1.55, -2.2); arrow.rotation.x = -Math.PI / 2;
+  scene.add(arrow);
+  // a sign that stays in the room, straight ahead and a little below eye level: what the head is doing, in numbers
+  const sign = VRE.textPlane(1.5, 0.6, 750, 300);
+  sign.position.set(0, -0.25, -2.4);
+  scene.add(sign);
+  const { lens, lensRender } = VRE.lens({ renderer, scene, camera, stereo });
+
+  // ---------- the head (the new part) ----------
+  const head = VRE.head({ camera, el: renderer.domElement, onTurn: layout, onTap: () => head.recenter() });
+  function layout() {
+    const f = head.fit($('view'), renderer);
+    S.w = f.w; S.h = f.h; S.ready = f.ready;
+    $('turn').hidden = !(S.on && !S.ready);
+    $('mid').hidden = !STEREO || !S.ready;
+  }
+  addEventListener('resize', () => S.on && layout());
+  $('recenter').onclick = () => head.recenter();
+
+  const fwd = new THREE.Vector3();
+  let last = 0, fps = 60, wake = null;
+  function frame(now) {
+    if (!S.on) return;
+    requestAnimationFrame(frame);
+    const gap = now - last; last = now;
+    pace(now, gap);
+    if (gap > 0 && gap < 500) fps += (1000 / gap - fps) * 0.05;
+    // straight ahead is set as the count ends, with the phone already in the viewer, not when Start was pressed
+    if (S.counting && now >= S.count) { S.counting = false; head.recenter(); }
+    head.apply();
+    fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    const yaw = Math.atan2(fwd.x, -fwd.z) / D, pitch = Math.asin(Math.max(-1, Math.min(1, fwd.y))) / D;
+    const left = Math.ceil((S.count - now) / 1000);
+    VRE.drawText(sign, S.counting
+      ? ['Put the phone in the viewer', 'Straight ahead is set in ' + left]
+      : [head.motion ? 'Following your head' : 'Drag to look',
+         Math.round(fps) + ' pictures a second',
+         'Turned ' + (yaw >= 0 ? 'right ' : 'left ') + Math.abs(Math.round(yaw)) + '° · ' + (pitch >= 0 ? 'up ' : 'down ') + Math.abs(Math.round(pitch)) + '°',
+         TOUCH ? 'Viewer button: recenter' : 'Click: recenter']);
+    const w = S.w, h = S.h;
+    renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.clear();
+    if (!STEREO) renderer.render(scene, camera);
+    else if (lens.on) lensRender(w, h);
+    else {
+      stereo.aspect = 0.5; stereo.update(camera); renderer.setScissorTest(true);
+      renderer.setScissor(0, 0, w / 2, h); renderer.setViewport(0, 0, w / 2, h); renderer.render(scene, stereo.cameraL);
+      renderer.setScissor(w / 2, 0, w / 2, h); renderer.setViewport(w / 2, 0, w / 2, h); renderer.render(scene, stereo.cameraR);
+    }
+  }
+
+  // Start. The motion question is asked at once, from this very press: an iPhone only asks then.
+  $('go').onclick = async () => {
+    const answer = await head.ask();
+    S.motionAnswer = answer;
+    if (answer === 'refused') say('Motion was not allowed, so the room cannot follow your head. You can drag the picture to look around. To be asked again, reload the page.');
+    else say('');
+    $('setup').hidden = true; $('vr').hidden = false;
+    S.on = true;
+    layout();
+    try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+    S.counting = true; S.count = performance.now() + 3000;
+    head.recenter();
+    last = performance.now();
+    requestAnimationFrame(frame);
+  };
+  $('exit').onclick = () => {
+    S.on = false;
+    head.stop();
+    $('vr').hidden = true; $('setup').hidden = false;
+    try { if (wake) wake.release(); } catch (e) {}
+    wake = null;
+    if (S.motionAnswer !== 'refused') say('Head tracking: ' + (head.motion ? 'the motion sensors were used' : 'no motion sensors answered, so dragging was used') + '. About ' + Math.round(fps) + ' pictures a second.');
+  };
+  window.__v2 = { head, camera, S, lens, perf };
+})();
+</script>
+</body>
+</html>

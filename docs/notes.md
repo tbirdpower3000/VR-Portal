@@ -56,3 +56,17 @@ Every tracking change so far was tested against a made-up hand and then judged b
 ## 27 Nov 2026: orders, not direct control (engine 1.5.0)
 
 The atlas's VR jitter that was left after the frame-time fixes came from the hand: each raw sighting went straight to the cursor and, during a grab, straight to the camera. The cure has three layers: clean the sighting (`steady`), glide to it every picture (`glide`), and let gestures add to a wanted value that the view glides toward at a capped speed. Plus a guard against false input. Simulated hand, 30 sightings a second with 0.4% tremble and 5% spikes: still-hand shake down 25 times, speed changes while moving 5 times gentler, about 25 ms more delay (95 ms behind the true hand, 70 of it the camera). Tuning tried: One Euro cut-off 1.0 to 1.1, beta 7 to 40, glide 25 to 45 ms, lead 0 to 50 ms; beta 20 with 30 ms glide and 40 ms lead was the best trade. Skeet and Fruit Slicer still use their own aim smoothing (`OneEuro` + `Motion`); they are aim games where delay costs hits, so they were left alone.
+
+## 28 Nov 2026: v2 step 1, the head moves into the engine
+
+`v2/vr-engine.js` starts as v1 1.5.0 plus `VRE.head()`. The head code was not rewritten: a script cut Skeet VR v0.20's own text for the sensor reading, the rotation-lock quarter turn, the turn of the view, the drag fallback and the view's sizing, and changed only the four places that named Skeet's own things (its `resize`, its `headJump` flag, its `fire('tap')`, its `S` object). Skeet itself is untouched and stays on v1.
+
+Found while testing: desktop Chromium now has `DeviceOrientationEvent.requestPermission` too, and headless it answers "denied". So "is there a question to ask" is no longer an iPhone-only test; the demo treats a refusal the same everywhere (plain message, dragging still works).
+
+Kept from 23 Nov: straight ahead is set as play begins. The demo counts three seconds after Start, then recentres, so the phone is already in the viewer.
+
+Platform facts checked for v2 (28 Nov): no WebXR on iPhone (Safari has it only on visionOS), so the engine keeps its own stereo, lens fitting and head tracking; the motion question must be asked straight from the Start press; `PannerNode` HRTF works on iOS Safari but is not the default.
+
+Unknown until tried on the phone: whether the count of three is long enough to get the phone into the viewer; drift of straight ahead over a few minutes; whether rotation lock still comes out upright through `head.fit`.
+
+Later (not in 2.0.0): eye tracking, room tracking or pinning windows to real surfaces, avatars, a keyboard, 3D photos and video, a WebXR path for Android Chrome.
