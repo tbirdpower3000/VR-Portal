@@ -231,7 +231,7 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
   const H = () => pg.evaluate(() => { const K = window.__home; return { icons: K.home.icons.length, names: K.home.icons.map((i) => i.app.name).join(), wins: K.wins.list.map((w) => w.id).join(), v: K.pass.value, live: K.pass.state.live, plane: K.pass.plane.visible, sky: K.pass.sky.visible, skyOp: K.pass.sky.material.opacity, bright: K.pass.plane.material.color.r, across: K.home.icons.map((i) => +K.sh.pointer.degOf(i.target).toFixed(1)), gap: Math.abs(K.home.icons[0].yaw - K.home.icons[1].yaw) * 57.29578 }; });
   await pg.waitForFunction(() => window.__home.pass.state.live, null, { timeout: 8000 });
   let h0 = await H();
-  ok('home: the tiles come from apps.json, each well over 3 degrees across (7.5 by 11) and 12.6 degrees apart', h0.icons === 8 && h0.across.every((d) => d >= 7.4) && near(h0.gap, 12.6, 0.01), h0.names + ' ' + h0.across[0] + ' ' + h0.gap.toFixed(1));
+  ok('home: the tiles come from apps.json, each well over 3 degrees across (8 by 11.6) and 12.6 degrees apart', h0.icons === 8 && h0.across.every((d) => d >= 7.9) && near(h0.gap, 12.6, 0.01), h0.names + ' ' + h0.across[0] + ' ' + h0.gap.toFixed(1));
   ok('see-through starts as the room dimmed: the camera picture is shown darker, the sky is not', h0.live && h0.plane && !h0.sky && near(h0.v, 0.5, 1e-9) && h0.bright < 0.5 && h0.bright > 0.2, JSON.stringify({ v: h0.v, bright: +h0.bright.toFixed(2) }));
   await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.app === 'surroundings').mesh"); await pinch(pg, true); await pinch(pg, false);
   let h1 = await H();
@@ -250,6 +250,10 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
   const back = await pg.evaluate(() => [window.__home.wins.list.length, window.__home.home.shown, window.__home.dock.shown]);
   ok('the Home icon closes the windows and brings the icons back', back[0] === 0 && back[1] === true && back[2] === false, back.join());
   await pg.screenshot({ path: path.join(OUT, 'v2-home.png') });
+  const type = await pg.evaluate(() => { const K = window.__home, seen = []; const x = document.createElement('canvas').getContext('2d'); const real = x.constructor.prototype.fillText; x.constructor.prototype.fillText = function (s) { const m = /(\d+)px/.exec(this.font); if (m && String(s).trim().length > 2) seen.push(+m[1]); return real.apply(this, arguments); };
+    const w = K.APPS.status(); w.redraw(); const a = K.APPS.about(); a.redraw(); x.constructor.prototype.fillText = real;
+    const px = Math.min(...seen), deg = VRE.angle(px / 1000, 1.5); K.wins.closeAll(); return [px, +deg.toFixed(2), VRE.TEXT_DEG]; });
+  ok('words in a window are at least a degree and a half tall (46 pixels is 1.75 degrees at this distance)', type[0] >= 42 && type[1] >= 1.6, type.join(' '));
   ok('home: no errors on the page', pg.errors.length === 0, pg.errors.join(' | '));
   await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.name === 'Skeet VR').mesh"); await pinch(pg, true); await pinch(pg, false);
   await pg.waitForTimeout(500);

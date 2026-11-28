@@ -45,26 +45,25 @@
   $('ver').textContent = 'engine ' + VRE.version;
   let sh = null, wins = null, pass = null, home = null, lastTick = 0, fps = 60, lastNow = 0;
   const FONT = '"Instrument Sans", system-ui, sans-serif';
-  const text = (x, lines) => { x.fillStyle = '#e9eef5'; x.textAlign = 'left'; x.textBaseline = 'top'; lines.forEach((ln, i) => { x.font = '400 36px ' + FONT; x.fillText(ln, 34, 14 + i * 52); }); };
   const setDial = (v) => { pass.set(v); VRE.store.set('vrHomeSurround', +v.toFixed(2)); if (sh.sound.ac && sh.sound.snd.on) sh.sound.tone('sine', 400 + v * 400, 420 + v * 400, 0.06, 0.1, 0); };
   const APPS = {
     surroundings: () => wins.open({ id: 'surroundings', title: 'Surroundings', w: 0.9, h: 0.5,
-      draw(x) { text(x, [pass.state.live ? 'Your room, through the camera, or a sky.' : 'No camera, so the sky is shown.']); },
+      draw(x, W) { wins.text(x, W, [pass.state.live ? 'Your room, or a sky' : 'No camera: sky only']); },
       spots: [
         { id: 'room', x: 40, y: 80, w: 250, h: 90, label: 'My room', select() { setDial(0); } },
         { id: 'dim', x: 320, y: 80, w: 250, h: 90, label: 'Dimmed', select() { setDial(0.5); } },
         { id: 'sky', x: 600, y: 80, w: 250, h: 90, label: 'Sky', select() { setDial(1); } },
         { id: 'dial', x: 40, y: 270, w: 810, h: 70, label: () => 'Blend ' + Math.round(pass.value * 100) + '%', value: () => pass.value, slide(f) { setDial(f); } },
       ] }),
-    status: () => wins.open({ id: 'status', title: 'Status', w: 1.0, h: 0.5, draw(x) {
-      const h = sh.hands && sh.hands.handSys;
-      text(x, [Math.round(fps) + ' pictures a second · sharpness ' + sh.perf.pr.toFixed(2),
-        'Head: ' + (sh.head.motion ? 'motion sensors' : 'dragging (no sensors answered)'),
-        'Hand finder: ' + (sh.S.hands ? (h.on === 'GPU' ? 'graphics chip' : 'processor') + ', hand in ' + (sh.hand.looks ? Math.round((100 * sh.hand.found) / sh.hand.looks) : 0) + '% of looks' : 'off' + (sh.S.why ? ' (' + sh.S.why + ')' : '')),
-        'Camera: ' + (sh.info.cam ? sh.info.cam.slice(0, 26) + (sh.info.camFps ? ', ' + sh.info.camFps + ' a second' : '') : 'none'),
-        'Room shown ' + (pass.state.live ? (pass.state.zoom || 1).toFixed(2) + ' times life size' : 'not at all (no camera)') + ' · engine ' + VRE.version]);
+    status: () => wins.open({ id: 'status', title: 'Status', w: 1.1, h: 0.62, draw(x, W) {
+      const hs = sh.hands && sh.hands.handSys;
+      wins.text(x, W, [Math.round(fps) + ' pictures a second',
+        'Head: ' + (sh.head.motion ? 'motion sensors' : 'dragging'),
+        'Hand: ' + (sh.S.hands ? (hs.on === 'GPU' ? 'graphics chip' : 'processor') + ', seen ' + (sh.hand.looks ? Math.round((100 * sh.hand.found) / sh.hand.looks) : 0) + '%' : 'off'),
+        'Camera: ' + (sh.info.cam ? (sh.info.camFps ? sh.info.camFps + ' a second, ' : '') + sh.info.cam.slice(0, 22) : 'none'),
+        'Room ' + (pass.state.live ? 'at ' + (pass.state.zoom || 1).toFixed(2) + ' times life size' : 'not shown') + ' · v' + VRE.version]);
     } }),
-    about: () => wins.open({ id: 'about', title: 'About', w: 1.0, h: 0.54, draw: (x) => text(x, ['VR Portal home: look and pinch on a phone.', 'Your head aims; your hand picks, held low.', 'Windows stay put as your head turns.', 'No eye tracking and no walking about:', 'a phone in a browser cannot sense either.', 'Built with Claude by tbirdpower3000 and contributors.']) }),
+    about: () => wins.open({ id: 'about', title: 'About', w: 1.1, h: 0.68, draw: (x, W) => wins.text(x, W, ['Your head aims. Your hand picks, held low.', 'Windows stay put as your head turns.', 'It cannot follow your eyes, or where you walk.', 'Built with Claude by tbirdpower3000 and contributors.'], { gap: 8 }) }),
     recenter: () => { sh.head.recenter(); sh.note('Straight ahead set', 1200); },
   };
   // A page (a game, the atlas) does not open the moment its tile is picked. A card opens first: what it is, where it
@@ -74,14 +73,11 @@
     const old = wins.get('card'); if (old) old.close();
     let host = ''; try { host = new URL(url, location.href).host; } catch (e) {}
     const w = wins.open({ id: 'card', title: app.name, w: 1.0, h: 0.56,
-      draw(x) {
+      draw(x, W) {
         x.fillStyle = app.color; x.beginPath(); x.arc(110, 110, 72, 0, 7); x.fill();
         x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = (/[\u0000-\u00ff]/.test(app.icon[0]) ? '700 84px ' : '84px ') + 'system-ui, sans-serif'; x.fillText(app.icon, 110, 116);
-        x.textAlign = 'left'; x.textBaseline = 'top'; x.fillStyle = '#e9eef5'; x.font = '400 36px ' + FONT;
-        const words = (app.about || 'Opens as its own page.').split(' '); let line = '', y = 36;
-        words.forEach((wd) => { if (x.measureText(line + ' ' + wd).width > 740 && line) { x.fillText(line, 220, y); y += 48; line = wd; } else line = (line + ' ' + wd).trim(); });
-        x.fillText(line, 220, y);
-        x.fillStyle = '#9fb0c6'; x.font = '400 28px ' + FONT; x.fillText('Opens as its own page' + (host ? ' on ' + host : '') + '. It has a link back here.', 220, y + 62);
+        const y = wins.text(x, W, [app.about || 'Opens as its own page.'], { x: 220, w: W - 250, y: 24 });
+        wins.text(x, W, ['Starts in VR as its own page. It links back here.'], { x: 220, w: W - 250, y: y + 6, px: 34, color: '#b8c6da' });
       },
       spots: [
         { id: 'open', x: 60, y: 330, w: 420, h: 110, label: 'Open', select() { sh.note('Opening ' + app.name, 900); setTimeout(() => location.assign(url), 350); } },

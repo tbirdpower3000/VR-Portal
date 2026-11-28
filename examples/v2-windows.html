@@ -50,9 +50,8 @@
     sky.scale.x = -1; sh.scene.add(sky);
     const grid = new THREE.GridHelper(40, 40, 0x35507a, 0x1c2c47); grid.position.y = -1.6; sh.scene.add(grid);
   }
-  const text = (x, lines) => { x.fillStyle = '#e9eef5'; x.textAlign = 'left'; x.textBaseline = 'top'; lines.forEach((ln, i) => { x.font = '400 36px "Instrument Sans", system-ui, sans-serif'; x.fillText(ln, 34, 14 + i * 52); }); };
   const APPS = {
-    notes: () => wins.open({ id: 'notes', title: 'Notes', w: 1.0, h: 0.56, draw: (x) => text(x, ['A window is a panel of frosted glass.', 'It stays where you put it as your head turns.', 'The bar below moves it. The dot closes it.', 'The corner makes it larger or smaller.', 'It cannot stay behind if you walk away:', 'the phone cannot tell where you are standing.']) }),
+    notes: () => wins.open({ id: 'notes', title: 'Notes', w: 1.1, h: 0.7, draw: (x, W) => wins.text(x, W, ['A window stays where you put it as your head turns.', 'The bar below moves it. The dot closes it. The corner sizes it.', 'It cannot stay behind if you walk away: the phone cannot tell where you stand.'], { gap: 10 }) }),
     clock: () => wins.open({ id: 'clock', title: 'Clock and controls', w: 0.9, h: 0.6,
       draw(x, W, H) {
         const now = new Date();

@@ -32,7 +32,7 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '2.1.0' };
+  const VRE = { version: '2.2.0' };
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -83,6 +83,7 @@
     const PR_MAX = Math.min(devicePixelRatio || 1, 2);
     const renderer = new THREE.WebGLRenderer({ antialias: (devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
     renderer.setPixelRatio(PR_MAX);
+    VRE.aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy() || 1); // how well the graphics chip can keep a slanted picture sharp
     const perf = { pr: PR_MAX, ft: 16.7, hold: 0, upAfter: 0, n: 0, sum: 0 };
     function pace(now, gap) {
       if (!(gap > 0 && gap < 500)) return;
@@ -838,6 +839,13 @@
   VRE.angle = (w, d) => (2 * Math.atan(w / (2 * d))) / D;   // degrees covered by a width w seen from d away
   VRE.sizeAt = (deg, d) => 2 * d * Math.tan((deg * D) / 2); // the width that covers deg degrees from d away
   VRE.MIN_TARGET_DEG = 3;
+  // Words follow the same rule. Through a Cardboard's lenses a phone shows about 16 pixels to a degree, so words under
+  // about a degree and a half tall cannot be read (found on the phone, 28 Nov: 36-pixel text on a window, 1.4 degrees,
+  // was hard to read; the 27-pixel line on a tile, 0.7 degrees, was not readable at all). Text meant to be read is
+  // 1.75 degrees tall or more; a name or a button's word 1.5 or more.
+  VRE.TEXT_DEG = 1.75;
+  // keeps a picture of words sharp when it is seen at a slant or made smaller
+  VRE.sharp = (tex) => { tex.anisotropy = VRE.aniso || 1; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true; return tex; };
 
   // ---------- the pinch ----------
   // Thumb tip to index tip, measured against the hand's own size so it reads the same near and far. It closes below
@@ -1039,10 +1047,10 @@
       x.clearRect(0, 0, W, H);
       rr(x, 3, 3, W - 6, H - 6, 34);
       const g = x.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, 'rgba(34,50,80,0.80)'); g.addColorStop(1, 'rgba(10,17,32,0.80)');
+      g.addColorStop(0, 'rgba(26,40,66,0.92)'); g.addColorStop(1, 'rgba(8,13,26,0.92)'); // dark enough that white words stand clear of whatever is behind
       x.fillStyle = g; x.fill();
       x.lineWidth = 3; x.strokeStyle = 'rgba(233,238,245,0.30)'; x.stroke();
-      x.fillStyle = INK; x.font = '600 40px ' + FONT; x.textAlign = 'left'; x.textBaseline = 'middle';
+      x.fillStyle = INK; x.font = '600 46px ' + FONT; x.textAlign = 'left'; x.textBaseline = 'middle';
       x.fillText(w.title, 34, 44);
       x.fillStyle = 'rgba(233,238,245,0.16)'; x.fillRect(28, 76, W - 56, 2);
       x.save(); x.translate(0, 84);
@@ -1057,7 +1065,7 @@
           x.fillStyle = 'rgba(127,200,255,0.55)'; rr(x, sp.x + 6, sp.y + sp.h / 2 - 5, (sp.w - 12) * v, 10, 5); x.fill();
           x.fillStyle = INK; x.beginPath(); x.arc(sp.x + 6 + (sp.w - 12) * v, sp.y + sp.h / 2, Math.min(18, sp.h / 2 - 4), 0, 7); x.fill();
         }
-        if (sp.label) { x.fillStyle = INK; x.font = '500 34px ' + FONT; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(typeof sp.label === 'function' ? sp.label(w) : sp.label, sp.x + sp.w / 2, sp.y + sp.h / 2 + (sp.slide ? -sp.h / 2 - 26 : 1)); }
+        if (sp.label) { x.fillStyle = INK; x.font = '600 42px ' + FONT; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(typeof sp.label === 'function' ? sp.label(w) : sp.label, sp.x + sp.w / 2, sp.y + sp.h / 2 + (sp.slide ? -sp.h / 2 - 30 : 2)); }
       });
       x.restore();
       w.tex.needsUpdate = true;
@@ -1081,6 +1089,19 @@
     }
     const api = {
       list, R, MAX,
+      // Words in a window, at a size that can be read through the lenses (46 pixels: 1.75 degrees at this distance),
+      // wrapped to the window's width. Give it the lines or paragraphs; it gives back where the words ended.
+      text(x, W, lines, opt) {
+        const px = (opt && opt.px) || 46, left = (opt && opt.x) || 34, width = (opt && opt.w) || W - left - 34;
+        let y = (opt && opt.y) || 12;
+        x.fillStyle = (opt && opt.color) || INK; x.textAlign = 'left'; x.textBaseline = 'top'; x.font = '500 ' + px + 'px ' + FONT;
+        (Array.isArray(lines) ? lines : [lines]).forEach((para) => {
+          let line = '';
+          String(para).split(' ').forEach((wd) => { if (line && x.measureText(line + ' ' + wd).width > width) { x.fillText(line, left, y); y += px * 1.22; line = wd; } else line = line ? line + ' ' + wd : wd; });
+          x.fillText(line, left, y); y += px * 1.22 + ((opt && opt.gap) || 0);
+        });
+        return y;
+      },
       layout: () => store.get(key, {}),
       get: (id) => list.find((w) => w.id === id) || null,
       closeAll() { list.slice().forEach((w) => close(w, true)); },
@@ -1090,7 +1111,7 @@
         if (list.length >= MAX) close(list.slice().sort((p, q) => p.used - q.used)[0]); // the one used longest ago makes room
         const ww = spec.w || 0.9, hh = spec.h || 0.6, PX = 1000;
         const c = document.createElement('canvas'); c.width = Math.round(ww * PX); c.height = Math.round(hh * PX);
-        const tex = new THREE.CanvasTexture(c);
+        const tex = VRE.sharp(new THREE.CanvasTexture(c));
         const panel = new THREE.Mesh(new THREE.PlaneGeometry(ww, hh), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
         panel.renderOrder = 30;
         const g = new THREE.Group();
@@ -1170,31 +1191,26 @@
   // 11 degrees from one to the next, so the ring cannot rest on two at once. Look at one and pinch: a game opens as its
   // own page; a window app opens a window.
   // const home = VRE.home({ scene, pointer, apps, onPage(url, app), onWindow(app) });   home.show(true / false)
-  // With shape: 'tile' each app is a card in place of a round icon: its sign, its name and a line saying what it is,
-  // 11 degrees wide and 7.5 tall, so there is something to read before choosing.
+  // With shape: 'tile' each app is a card in place of a round icon: its sign over its name, 11.6 degrees wide and 8 tall.
   VRE.home = function (o) {
     const TILE = o.shape === 'tile';
     const R = o.R || 1.5, PER_ROW = o.perRow || 4, STEP = (TILE ? 12.6 : 11) * D, ROW = (TILE ? 9.4 : 11.5) * D, TOP = (o.pitch != null ? o.pitch : -1) * D, ICON = VRE.sizeAt(7, R) / 2;
-    const TW = VRE.sizeAt(11, R), TH = VRE.sizeAt(7.5, R);
+    const TW = VRE.sizeAt(11.6, R), TH = VRE.sizeAt(8, R);
     const card = (app) => {
-      const c = document.createElement('canvas'); c.width = 440; c.height = 300;
+      // a tile carries only what can be read at a glance: its sign, and its name in letters a degree and a half tall
+      const c = document.createElement('canvas'); c.width = 464; c.height = 320;
       const x = c.getContext('2d'), rr = (a, b, w, h, r) => { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); };
-      const g = x.createLinearGradient(0, 0, 0, 300);
-      g.addColorStop(0, 'rgba(40,58,92,0.86)'); g.addColorStop(1, 'rgba(10,17,32,0.86)');
-      rr(4, 4, 432, 292, 30); x.fillStyle = g; x.fill(); x.lineWidth = 4; x.strokeStyle = 'rgba(233,238,245,0.32)'; x.stroke();
-      x.fillStyle = app.color; x.beginPath(); x.arc(78, 84, 56, 0, 7); x.fill();
+      const g = x.createLinearGradient(0, 0, 0, 320);
+      g.addColorStop(0, 'rgba(30,46,76,0.94)'); g.addColorStop(1, 'rgba(8,13,26,0.94)');
+      rr(4, 4, 456, 312, 34); x.fillStyle = g; x.fill(); x.lineWidth = 5; x.strokeStyle = 'rgba(233,238,245,0.45)'; x.stroke();
+      x.fillStyle = app.color; x.beginPath(); x.arc(232, 86, 60, 0, 7); x.fill();
       x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.font = (/[\u0000-\u00ff]/.test(app.icon[0]) ? '700 62px ' : '62px ') + 'system-ui, sans-serif'; x.fillText(app.icon, 78, 88);
-      x.textAlign = 'left'; x.fillStyle = '#e9eef5'; x.font = '600 38px "Instrument Sans", system-ui, sans-serif';
+      x.font = (/[\u0000-\u00ff]/.test(app.icon[0]) ? '700 70px ' : '70px ') + 'system-ui, sans-serif'; x.fillText(app.icon, 232, 91);
+      x.font = '600 58px "Instrument Sans", system-ui, sans-serif';
       const words = app.name.split(' '); let l1 = '', l2 = '';
-      words.forEach((wd) => { if (!l2 && x.measureText(l1 + ' ' + wd).width < 268) l1 = (l1 + ' ' + wd).trim(); else l2 = (l2 + ' ' + wd).trim(); });
-      x.fillText(l1, 152, l2 ? 62 : 84); if (l2) x.fillText(l2, 152, 106);
-      // what it is, on up to three short lines
-      x.fillStyle = '#b8c6da'; x.font = '400 27px "Instrument Sans", system-ui, sans-serif';
-      const ab = (app.about || (app.kind === 'page' ? 'Opens as its own page' : 'Opens a window')).split(' '); let line = '', y = 176;
-      ab.forEach((wd) => { if (x.measureText(line + ' ' + wd).width > 392 && line) { if (y < 250) x.fillText(line, 26, y); y += 34; line = wd; } else line = (line + ' ' + wd).trim(); });
-      if (y < 250 + 34) x.fillText(line, 26, y);
-      return new THREE.CanvasTexture(c);
+      words.forEach((wd) => { if (!l2 && x.measureText((l1 + ' ' + wd).trim()).width < 430) l1 = (l1 + ' ' + wd).trim(); else l2 = (l2 + ' ' + wd).trim(); });
+      x.fillText(l1, 232, l2 ? 196 : 226); if (l2) x.fillText(l2, 232, 262, 440);
+      return VRE.sharp(new THREE.CanvasTexture(c));
     };
     const g = new THREE.Group(), icons = [];
     o.scene.add(g);
@@ -1218,18 +1234,18 @@
       const holder = new THREE.Group();
       holder.position.set(Math.sin(yaw) * Math.cos(pitch) * R, Math.sin(pitch) * R, -Math.cos(yaw) * Math.cos(pitch) * R);
       holder.lookAt(0, 0, 0);
-      const label = VRE.textPlane(ICON * 3.2, ICON * 0.62, 384, 74);
-      label.position.set(0, -ICON * 1.42, 0);
+      const label = VRE.textPlane(ICON * 3.6, ICON * 0.86, 432, 104);
+      label.position.set(0, -ICON * 1.56, 0);
       VRE.drawText(label, [app.name], { bg: false });
       label.visible = !TILE; // a tile carries its own name
       holder.add(m, label);
       g.add(holder);
       const t = o.pointer.add({ object: m, hw: TILE ? TW / 2 : ICON * 1.08, hh: TILE ? TH / 2 : ICON * 1.08, round: !TILE, kind: 'icon', pri: 1, app, on: {
-        hover(on) { m.scale.setScalar(on ? (TILE ? 1.08 : 1.16) : 1); m.material.color.setScalar(on || !TILE ? 1 : 0.82); label.material.opacity = on ? 1 : 0.8; },
+        hover(on) { m.scale.setScalar(on ? (TILE ? 1.08 : 1.16) : 1); m.material.color.setScalar(on || !TILE ? 1 : 0.9); label.material.opacity = on ? 1 : 0.8; },
         select() { if (app.kind === 'page') { if (o.onPage) o.onPage(VRE.fromHome(app.url), app); else location.assign(VRE.fromHome(app.url)); } else if (o.onWindow) o.onWindow(app); },
       } });
       label.material.opacity = 0.8;
-      if (TILE) m.material.color.setScalar(0.82);
+      if (TILE) m.material.color.setScalar(0.9);
       icons.push({ app, mesh: m, holder, target: t, yaw, pitch });
     });
     return { group: g, icons, R, show(on) { g.visible = on; }, get shown() { return g.visible; } };

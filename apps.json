@@ -1,5 +1,5 @@
 {
-  "note": "The icons on the VR Portal home screen. Each entry: name, icon (an emoji or one or two letters), kind (\"page\" opens a web page, \"window\" opens a window the home page provides, named by app), url or app, an optional color (#rrggbb), and \"about\": a short line shown on its tile and card. An entry that is not right is left out with a warning; the rest still load.",
+  "note": "The icons on the VR Portal home screen. Each entry: name, icon (an emoji or one or two letters), kind (\"page\" opens a web page, \"window\" opens a window the home page provides, named by app), url or app, an optional color (#rrggbb), and \"about\": a short line shown on its card (about 60 letters at most, to stay readable in the viewer). An entry that is not right is left out with a warning; the rest still load.",
   "apps": [
     {
       "name": "Skeet VR",
@@ -7,7 +7,7 @@
       "kind": "page",
       "url": "https://tbirdpower3000.github.io/Skeet-Game/",
       "color": "#b5651d",
-      "about": "Clay shooting. Aim a finger gun, drop your thumb to fire."
+      "about": "Clay shooting with a finger gun. Drop your thumb to fire."
     },
     {
       "name": "Fruit Slicer VR",
@@ -15,7 +15,7 @@
       "kind": "page",
       "url": "https://tbirdpower3000.github.io/VR-FruitSlicer/",
       "color": "#2f7d4f",
-      "about": "Fruit flies at you. Cut it with your finger or your gaze."
+      "about": "Cut flying fruit with your finger or your gaze."
     },
     {
       "name": "Planetary Atlas",
@@ -23,7 +23,7 @@
       "kind": "page",
       "url": "https://tbirdpower3000.github.io/planetary-atlas-v15mk2/",
       "color": "#3b4f8a",
-      "about": "The Solar System and its worlds, with VR on the map and globes."
+      "about": "The Solar System and its worlds, in VR."
     },
     {
       "name": "Hand training",
@@ -31,7 +31,7 @@
       "kind": "page",
       "url": "https://tbirdpower3000.github.io/hand-control-training/",
       "color": "#6a4c93",
-      "about": "Practice and tune webcam hand control."
+      "about": "Practice and tune hand control."
     },
     {
       "name": "Surroundings",
