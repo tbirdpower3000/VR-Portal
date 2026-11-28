@@ -37,23 +37,34 @@ had to be made twice. That shared half now lives here once.
 Still in each game, not yet shared: head tracking and the rotation-lock handling, the
 hand-in-the-room aiming, the thumb trigger, and each game's own rules.
 
-## v2, in the making: the "spatial home"
+## v2: the spatial home
 
-`v2/vr-engine.js` is a new version being built step by step: look and pinch, floating windows, a home screen of app
-icons and a see-through mode, at phone-in-a-Cardboard quality. The games stay on v1 until v2 has been tried on a phone.
-It starts as a copy of v1 (1.5.0), so everything above is in it.
+`v2/vr-engine.js` (2.0.0) adds look-and-pinch, floating windows, a home screen of icons and a see-through mode, at
+phone-in-a-Cardboard quality. **Open it: [home.html](https://tbirdpower3000.github.io/VR-Portal/home.html).**
+It is v1 (1.5.0) plus the parts below, so everything above is in it. The games stay on v1 until v2 has been tried on a
+phone. None of v2 has been tried on a phone yet: its checks run in a desktop browser with a made-up camera and hand.
 
-| Step | What it adds | Try it | State |
-|---|---|---|---|
-| 1 | `VRE.head()`: head tracking, the rotation-lock handling and recenter, taken out of Skeet VR by slicing its own text | [examples/v2-head.html](https://tbirdpower3000.github.io/VR-Portal/examples/v2-head.html) | built; headless checks pass; not yet tried on a phone |
-| 2 | `VRE.pointer()`: reticle, hover, pinch, dwell | | to do |
-| 3 | `VRE.window()`: floating windows | | to do |
-| 4 | `VRE.home()` and `apps.json` | | to do |
-| 5 | `VRE.passthrough()` and 3D sound | | to do |
+| Part | What it does | Try it |
+|---|---|---|
+| `VRE.head()` | Head tracking, the rotation-lock handling and recenter, taken out of Skeet VR by slicing its own text | [v2-head](https://tbirdpower3000.github.io/VR-Portal/examples/v2-head.html) |
+| `VRE.pointer()`, `VRE.pinch()`, `VRE.angle()` | A ring where you aim; what it rests on lights up; a pinch picks it (locked when the pinch begins), pinch and turn drags, pinch and hold is "more" or, on empty space, recenter. No hand for 3 s: resting the ring for 1 s picks. The viewer's button picks too | [v2-pointer](https://tbirdpower3000.github.io/VR-Portal/examples/v2-pointer.html): nine discs from 1.5 to 8 degrees, with hits and misses counted per size |
+| `VRE.windows()` | Frosted panels 1.5 m away with a bar (move), a dot (close) and a corner (size); buttons and sliders inside; at most four; where each was left is remembered | [v2-windows](https://tbirdpower3000.github.io/VR-Portal/examples/v2-windows.html) |
+| `VRE.home()`, `VRE.readApps()` | Round icons from [`apps.json`](apps.json); a game opens as its own page with `?from=home`, a window app opens a window. A wrong entry is left out with a warning | [home](https://tbirdpower3000.github.io/VR-Portal/home.html) |
+| `VRE.passthrough()`, `VRE.skyTexture()` | Your room through the rear camera behind everything, with a dial: room, room dimmed, or a sky in its place. The picture is the same video the hand finder reads; it is not opened twice | Surroundings, on the home screen |
+| `VRE.sound()` | Sounds can be given a place in the room (HRTF), and stay there as the head turns | window sounds |
+| `VRE.shell()` | Sets all of it up and runs it each picture in the right order, so a page is a few lines | every v2 page |
 
-What v2 cannot do, by the nature of a phone in a browser: no eye tracking (the head's direction stands in for the
-eyes), and no tracking of where you are in the room (windows will turn with your head but cannot hold their place as
-you walk).
+**Adding an app** is a line in `apps.json`: `{ "name", "icon", "kind": "page", "url" }` for a game or page, or
+`"kind": "window", "app"` for a window the home page provides.
+
+**What v2 cannot do, by the nature of a phone in a browser.** No eye tracking: the middle of your view stands in for
+where you look. No sense of where you stand: windows stay put as your head turns but cannot stay behind as you walk.
+The room in see-through is one flat picture in both eyes, not 3D, and is shown a little larger than life so that it
+fills the view (the Status window says by how much). Sizes are set by angle: nothing to pick is under 3 degrees across.
+
+**Choices made where the brief asked** (say if you want them changed): the home screen starts with Skeet VR, Fruit
+Slicer VR, the Planetary Atlas and the hand-control training page; windows use the dark Atlas look; resting the ring
+is allowed as a fallback when no hand is seen. Dragging follows your head, not your hand, so the arm never has to move.
 
 ## Using it
 

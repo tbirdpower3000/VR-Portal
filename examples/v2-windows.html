@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>VR Portal v2: floating windows</title>
+<style>
+  :root { --space: #070b14; --ink: #e9eef5; --gold: #ffd88a; --blue: #7fc8ff; }
+  html, body { margin: 0; min-height: 100%; background: var(--space); color: var(--ink); font: 16px/1.5 "Instrument Sans", system-ui, sans-serif; }
+  main { max-width: 660px; margin: 0 auto; padding: 18px 16px 40px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; } h2 { font-size: 1.05rem; margin: 22px 0 6px; }
+  .muted { color: #9fb0c6; } a { color: var(--gold); } li { margin: 6px 0; } label { display: block; margin: 8px 0; }
+  button#go { font: inherit; color: var(--space); background: var(--gold); border: 0; border-radius: 10px; padding: 12px 22px; font-weight: 600; }
+  table { border-collapse: collapse; font-size: 0.92rem; } td, th { padding: 3px 10px; text-align: right; border-bottom: 1px solid rgba(233, 238, 245, 0.12); } th { color: #9fb0c6; font-weight: 500; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="setup">
+  <h1>VR Portal v2 · step 3: floating windows <span class="muted" id="ver"></span></h1>
+  <p class="muted">Two windows float in front of you: one of text, one that draws itself (a clock, a counter button and a slider). Under each is a bar. Look at the bar, pinch, and turn your head: the window comes with you. Let go and it stays there.</p>
+  <p><button id="go">Start</button></p>
+  <p id="status" class="muted" role="status"></p>
+  <label><input type="checkbox" id="lensOn" checked /> Fit the picture to the Cardboard's lenses</label>
+  <label>Picture size <output id="lensSizeO">100%</output><br /><input type="range" id="lensSize" min="80" max="125" step="1" value="100" style="width: 100%" /></label>
+  <h2>What to check on the phone</h2>
+  <ol>
+    <li>Turn your head: the windows stay where they are in the room. Press <b>Recenter</b> (or pinch and hold on empty space) and they come back to the front.</li>
+    <li>Move a window by its bar. It should keep its distance and stay facing you.</li>
+    <li>Pinch the corner and turn your head right or down to make it larger; left or up, smaller.</li>
+    <li>In the second window, pick the button (the count goes up) and pick a place on the slider.</li>
+    <li>Close a window with the dot beside its bar. The round icons below open it again, where you left it.</li>
+    <li>Exit and Start again: the windows should be where you left them.</li>
+  </ol>
+  <p class="muted"><a href="../">Back to the portal</a> · <a href="#" id="forget">Forget where the windows were</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../v2/vr-engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  if (!window.THREE || !window.VRE) { $('status').textContent = 'The page could not load its parts. Check the connection and reload.'; return; }
+  $('ver').textContent = 'engine ' + VRE.version;
+  $('forget').onclick = (e) => { e.preventDefault(); VRE.store.set('vrV2WindowsDemo', {}); $('status').textContent = 'Forgotten. They will open straight ahead.'; };
+  let sh = null, wins = null, count = 0, level = 0.4, lastTick = 0;
+  // a quiet room to stand in: a dusk sky all round, and a floor grid
+  function room(sh) {
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 48, 24), new THREE.MeshBasicMaterial({ map: VRE.skyTexture(), side: THREE.BackSide }));
+    sky.scale.x = -1; sh.scene.add(sky);
+    const grid = new THREE.GridHelper(40, 40, 0x35507a, 0x1c2c47); grid.position.y = -1.6; sh.scene.add(grid);
+  }
+  const text = (x, lines) => { x.fillStyle = '#e9eef5'; x.textAlign = 'left'; x.textBaseline = 'top'; lines.forEach((ln, i) => { x.font = '400 36px "Instrument Sans", system-ui, sans-serif'; x.fillText(ln, 34, 14 + i * 52); }); };
+  const APPS = {
+    notes: () => wins.open({ id: 'notes', title: 'Notes', w: 1.0, h: 0.56, draw: (x) => text(x, ['A window is a panel of frosted glass.', 'It stays where you put it as your head turns.', 'The bar below moves it. The dot closes it.', 'The corner makes it larger or smaller.', 'It cannot stay behind if you walk away:', 'the phone cannot tell where you are standing.']) }),
+    clock: () => wins.open({ id: 'clock', title: 'Clock and controls', w: 0.9, h: 0.6,
+      draw(x, W, H) {
+        const now = new Date();
+        x.fillStyle = '#ffd88a'; x.font = '600 92px "JetBrains Mono", ui-monospace, monospace'; x.textAlign = 'center'; x.textBaseline = 'top';
+        x.fillText(now.toLocaleTimeString([], { hour12: false }), W / 2, 14);
+        x.fillStyle = 'rgba(127,200,255,0.5)'; x.fillRect(34, 132, (W - 68) * (now.getSeconds() / 59), 10);
+      },
+      spots: [
+        { id: 'count', x: 60, y: 200, w: 360, h: 110, label: () => 'Picked ' + count + ' times', select() { count++; } },
+        { id: 'level', x: 470, y: 230, w: 370, h: 70, label: () => 'Level ' + Math.round(level * 100) + '%', value: () => level, slide(f) { level = f; } },
+      ] }),
+  };
+  function build() {
+    sh = VRE.shell({ hands: true, status: $('status'), onReady() { APPS.notes(); APPS.clock(); },
+      onFrame(now) { if (now - lastTick > 500) { lastTick = now; const c = wins.get('clock'); if (c) c.redraw(); } } });
+    room(sh);
+    wins = VRE.windows({ scene: sh.scene, camera: sh.camera, pointer: sh.pointer, sound: sh.sound, key: 'vrV2WindowsDemo' });
+    const dock = VRE.home({ scene: sh.scene, pointer: sh.pointer, pitch: -34, apps: VRE.readApps([{ name: 'Notes', icon: 'N', kind: 'window', app: 'notes' }, { name: 'Clock', icon: 'C', kind: 'window', app: 'clock', color: '#7a5c1e' }]).apps, onWindow: (a) => APPS[a.app]() });
+    window.__v2w = { sh, wins, dock, APPS, get count() { return count; }, get level() { return level; } };
+  }
+  $('go').onclick = () => { if (!sh) build(); sh.start(); };
+})();
+</script>
+</body>
+</html>

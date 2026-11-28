@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>VR Portal v2: look and pinch</title>
+<style>
+  :root { --space: #070b14; --ink: #e9eef5; --gold: #ffd88a; --blue: #7fc8ff; }
+  html, body { margin: 0; min-height: 100%; background: var(--space); color: var(--ink); font: 16px/1.5 "Instrument Sans", system-ui, sans-serif; }
+  main { max-width: 660px; margin: 0 auto; padding: 18px 16px 40px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; } h2 { font-size: 1.05rem; margin: 22px 0 6px; }
+  .muted { color: #9fb0c6; } a { color: var(--gold); } li { margin: 6px 0; } label { display: block; margin: 8px 0; }
+  button#go { font: inherit; color: var(--space); background: var(--gold); border: 0; border-radius: 10px; padding: 12px 22px; font-weight: 600; }
+  table { border-collapse: collapse; font-size: 0.92rem; } td, th { padding: 3px 10px; text-align: right; border-bottom: 1px solid rgba(233, 238, 245, 0.12); } th { color: #9fb0c6; font-weight: 500; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="setup">
+  <h1>VR Portal v2 · step 2: look and pinch <span class="muted" id="ver"></span></h1>
+  <p class="muted">A wall of nine discs of different sizes. One is gold: look at it so the ring rests on it, then pinch your thumb and index finger together. Your hand can stay low, by your waist; it only has to be somewhere the rear camera can see it. The page counts hits and misses for each size, so the smallest comfortable target can be chosen from real numbers.</p>
+  <p><button id="go">Start</button></p>
+  <p id="status" class="muted" role="status"></p>
+  <label><input type="checkbox" id="lensOn" checked /> Fit the picture to the Cardboard's lenses</label>
+  <label>Picture size <output id="lensSizeO">100%</output><br /><input type="range" id="lensSize" min="80" max="125" step="1" value="100" style="width: 100%" /></label>
+  <label><input type="checkbox" id="useHand" checked /> Use my hand (rear camera). Untick to pick by resting the ring on a disc for a second.</label>
+  <h2>What to check on the phone</h2>
+  <ol>
+    <li>The ring in the middle turns <b>blue</b> when your hand is seen, and <b>gold</b> when it rests on a disc. The disc under it lights up before you pinch.</li>
+    <li>Pick the gold disc 20 or 30 times with your hand <b>low</b>. Which sizes are easy? Which do you miss?</li>
+    <li>Pinch, then turn your head away before letting go: the pick should still go to the disc that was lit when you pinched.</li>
+    <li>Put your hand down for a few seconds: the ring goes grey and fills when rested on a disc for a second.</li>
+    <li>Pinch and hold on empty space for a second: straight ahead is set again. The viewer's button also picks.</li>
+  </ol>
+  <h2>Your results</h2>
+  <div id="results" class="muted">No picks yet.</div>
+  <p class="muted"><a href="../">Back to the portal</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../v2/vr-engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id), D = Math.PI / 180;
+  if (!window.THREE || !window.VRE) { $('status').textContent = 'The page could not load its parts. Check the connection and reload.'; return; }
+  $('ver').textContent = 'engine ' + VRE.version;
+  const R = 1.5, SIZES = [4, 2, 6, 3, 8, 1.5, 5, 2.5, 3.5]; // degrees across, laid out so big and small are mixed
+  const T = {}; // per size: hits, misses, time
+  SIZES.forEach((d) => (T[d] = { hit: 0, miss: 0, ms: 0 }));
+  let goal = null, goalAt = 0, discs = [], sh = null, sign = null, wrong = 0;
+  // a quiet room to stand in: a dusk sky all round, and a floor grid
+  function room(sh) {
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 48, 24), new THREE.MeshBasicMaterial({ map: VRE.skyTexture(), side: THREE.BackSide }));
+    sky.scale.x = -1; sh.scene.add(sky);
+    const grid = new THREE.GridHelper(40, 40, 0x35507a, 0x1c2c47); grid.position.y = -1.6; sh.scene.add(grid);
+  }
+  function build() {
+    sh = VRE.shell({ hands: () => $('useHand').checked, status: $('status'), onFrame, onExit: results, onReady: () => next(),
+      onPick(t) { // every pick comes here: a hit on the gold disc, a pick of another disc, or a pinch on nothing
+        if (!goal || sh.S.counting) return;
+        const g = T[goal.deg];
+        if (t === goal.target) { g.hit++; g.ms += performance.now() - goalAt; next(); }
+        else { g.miss++; if (t) wrong++; }
+      } });
+    room(sh);
+    SIZES.forEach((deg, i) => {
+      const yaw = ((i % 3) - 1) * 14 * D, pitch = (9 - Math.floor(i / 3) * 12) * D, r = VRE.sizeAt(deg, R) / 2;
+      const m = new THREE.Mesh(new THREE.CircleGeometry(r, 40), new THREE.MeshBasicMaterial({ color: 0x35507a, depthTest: false }));
+      m.position.set(Math.sin(yaw) * Math.cos(pitch) * R, Math.sin(pitch) * R, -Math.cos(yaw) * Math.cos(pitch) * R);
+      m.lookAt(0, 0, 0); m.renderOrder = 10;
+      sh.scene.add(m);
+      const d = { deg, mesh: m, hover: false };
+      d.target = sh.pointer.add({ object: m, hw: r, round: true, deg, on: { hover(on) { d.hover = on; paint(); } } });
+      discs.push(d);
+    });
+    sign = VRE.textPlane(1.5, 0.36, 1000, 240);
+    sign.position.set(0, 0.62, -1.7); sh.scene.add(sign);
+    window.__v2p = { sh, discs, T, get goal() { return goal; } };
+  }
+  function paint() { discs.forEach((d) => { d.mesh.material.color.setHex(d === goal ? (d.hover ? 0xfff0c2 : 0xffd88a) : d.hover ? 0x7fc8ff : 0x35507a); d.mesh.scale.setScalar(d.hover ? 1.12 : 1); }); }
+  function next() { let n; do { n = discs[Math.floor(Math.random() * discs.length)]; } while (n === goal); goal = n; goalAt = performance.now(); paint(); }
+  function onFrame() {
+    const hits = SIZES.reduce((a, d) => a + T[d].hit, 0), miss = SIZES.reduce((a, d) => a + T[d].miss, 0), P = sh.pointer.state;
+    VRE.drawText(sign, ['Pick the gold disc', hits + ' picked · ' + miss + ' missed',
+      !sh.S.hands ? 'Rest the ring on it for a second' : P.mode === 'dwell' ? 'No hand seen: rest the ring on it' : sh.hand.seen ? 'Hand seen: pinch to pick' : 'Hold a hand where the camera sees it']);
+  }
+  function results() {
+    const rows = SIZES.slice().sort((a, b) => a - b).filter((d) => T[d].hit + T[d].miss);
+    $('results').innerHTML = !rows.length ? 'No picks yet.' : '<table><tr><th>Size</th><th>Picked</th><th>Missed</th><th>Time each</th></tr>' +
+      rows.map((d) => `<tr><td>${d}°</td><td>${T[d].hit}</td><td>${T[d].miss}</td><td>${T[d].hit ? (T[d].ms / T[d].hit / 1000).toFixed(1) + ' s' : '–'}</td></tr>`).join('') + '</table>' +
+      `<p>Hand finder: ${sh.S.hands ? (sh.hands.handSys.on === 'GPU' ? 'graphics chip' : 'processor') + ', hand found in ' + (sh.hand.looks ? Math.round((100 * sh.hand.found) / sh.hand.looks) : 0) + '% of looks' : 'not used'}${sh.info.cam ? ' · camera: ' + sh.info.cam + (sh.info.camFps ? ', ' + sh.info.camFps + ' pictures a second' : '') : ''}.</p>`;
+    const runs = VRE.store.get('vrV2PointerRuns', []); runs.push({ t: new Date().toISOString(), engine: VRE.version, hands: sh.S.hands, sizes: T, wrong, cam: sh.info.cam || '', camFps: sh.info.camFps || 0 }); VRE.store.set('vrV2PointerRuns', runs.slice(-50));
+  }
+  $('go').onclick = () => { if (!sh) build(); sh.start(); };
+})();
+</script>
+</body>
+</html>

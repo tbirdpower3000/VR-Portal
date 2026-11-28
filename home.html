@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>VR Portal home</title>
+<style>
+  :root { --space: #070b14; --ink: #e9eef5; --gold: #ffd88a; --blue: #7fc8ff; }
+  html, body { margin: 0; min-height: 100%; background: var(--space); color: var(--ink); font: 16px/1.5 "Instrument Sans", system-ui, sans-serif; }
+  main { max-width: 660px; margin: 0 auto; padding: 18px 16px 40px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; } h2 { font-size: 1.05rem; margin: 22px 0 6px; }
+  .muted { color: #9fb0c6; } a { color: var(--gold); } li { margin: 6px 0; } label { display: block; margin: 8px 0; }
+  button#go { font: inherit; color: var(--space); background: var(--gold); border: 0; border-radius: 10px; padding: 12px 22px; font-weight: 600; }
+  table { border-collapse: collapse; font-size: 0.92rem; } td, th { padding: 3px 10px; text-align: right; border-bottom: 1px solid rgba(233, 238, 245, 0.12); } th { color: #9fb0c6; font-weight: 500; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="setup">
+  <h1>VR Portal home <span class="muted" id="ver"></span></h1>
+  <p class="muted">A home screen for a phone in a Cardboard viewer. Look at an icon and pinch: a game opens, or a window does. The room around you is your own, through the camera; a dial fades it down, or swaps it for a dusk sky.</p>
+  <p><button id="go">Start</button></p>
+  <p id="status" class="muted" role="status"></p>
+  <label><input type="checkbox" id="lensOn" checked /> Fit the picture to the Cardboard's lenses</label>
+  <label>Picture size <output id="lensSizeO">100%</output><br /><input type="range" id="lensSize" min="80" max="125" step="1" value="100" style="width: 100%" /></label>
+  <label><input type="checkbox" id="useCam" checked /> Use the rear camera (for your hand, and to see your room). Without it, rest the ring on an icon for a second to pick it.</label>
+  <h2>How it works</h2>
+  <ul>
+    <li><b>Aim with your head.</b> A small ring marks the middle of your view. What it rests on lights up.</li>
+    <li><b>Pinch to pick</b>, thumb to index finger, with your hand low. The viewer's button does the same.</li>
+    <li><b>Pinch a window's bar and turn your head</b> to move it. The dot closes it; the corner sizes it. While a window is open the icons step aside; the <b>Home</b> icon, low down, brings them back.</li>
+    <li><b>Pinch and hold on empty space</b> for a second (or pick Recenter) to bring everything back to the front.</li>
+    <li><b>Surroundings</b> has the dial: your room, your room dimmed, or a sky.</li>
+  </ul>
+  <p class="muted">Nothing the camera sees is stored or sent anywhere. The phone cannot follow your eyes or where you walk, only which way your head is turned. <a href="./">Back to the portal</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="v2/vr-engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  if (!window.THREE || !window.VRE) { $('status').textContent = 'The page could not load its parts. Check the connection and reload.'; return; }
+  $('ver').textContent = 'engine ' + VRE.version;
+  let sh = null, wins = null, pass = null, home = null, lastTick = 0, fps = 60, lastNow = 0;
+  const FONT = '"Instrument Sans", system-ui, sans-serif';
+  const text = (x, lines) => { x.fillStyle = '#e9eef5'; x.textAlign = 'left'; x.textBaseline = 'top'; lines.forEach((ln, i) => { x.font = '400 36px ' + FONT; x.fillText(ln, 34, 14 + i * 52); }); };
+  const setDial = (v) => { pass.set(v); VRE.store.set('vrHomeSurround', +v.toFixed(2)); if (sh.sound.ac && sh.sound.snd.on) sh.sound.tone('sine', 400 + v * 400, 420 + v * 400, 0.06, 0.1, 0); };
+  const APPS = {
+    surroundings: () => wins.open({ id: 'surroundings', title: 'Surroundings', w: 0.9, h: 0.5,
+      draw(x) { text(x, [pass.state.live ? 'Your room, through the camera, or a sky.' : 'No camera, so the sky is shown.']); },
+      spots: [
+        { id: 'room', x: 40, y: 80, w: 250, h: 90, label: 'My room', select() { setDial(0); } },
+        { id: 'dim', x: 320, y: 80, w: 250, h: 90, label: 'Dimmed', select() { setDial(0.5); } },
+        { id: 'sky', x: 600, y: 80, w: 250, h: 90, label: 'Sky', select() { setDial(1); } },
+        { id: 'dial', x: 40, y: 270, w: 810, h: 70, label: () => 'Blend ' + Math.round(pass.value * 100) + '%', value: () => pass.value, slide(f) { setDial(f); } },
+      ] }),
+    status: () => wins.open({ id: 'status', title: 'Status', w: 1.0, h: 0.5, draw(x) {
+      const h = sh.hands && sh.hands.handSys;
+      text(x, [Math.round(fps) + ' pictures a second · sharpness ' + sh.perf.pr.toFixed(2),
+        'Head: ' + (sh.head.motion ? 'motion sensors' : 'dragging (no sensors answered)'),
+        'Hand finder: ' + (sh.S.hands ? (h.on === 'GPU' ? 'graphics chip' : 'processor') + ', hand in ' + (sh.hand.looks ? Math.round((100 * sh.hand.found) / sh.hand.looks) : 0) + '% of looks' : 'off' + (sh.S.why ? ' (' + sh.S.why + ')' : '')),
+        'Camera: ' + (sh.info.cam ? sh.info.cam.slice(0, 26) + (sh.info.camFps ? ', ' + sh.info.camFps + ' a second' : '') : 'none'),
+        'Room shown ' + (pass.state.live ? (pass.state.zoom || 1).toFixed(2) + ' times life size' : 'not at all (no camera)') + ' · engine ' + VRE.version]);
+    } }),
+    about: () => wins.open({ id: 'about', title: 'About', w: 1.0, h: 0.54, draw: (x) => text(x, ['VR Portal home: look and pinch on a phone.', 'Your head aims; your hand picks, held low.', 'Windows stay put as your head turns.', 'No eye tracking and no walking about:', 'a phone in a browser cannot sense either.', 'Built with Claude by tbirdpower3000 and contributors.']) }),
+    recenter: () => { sh.head.recenter(); sh.note('Straight ahead set', 1200); },
+  };
+  async function build() {
+    const list = await VRE.loadApps('apps.json');
+    sh = VRE.shell({ hands: () => $('useCam').checked, camera: () => $('useCam').checked, status: $('status'),
+      onFrame(now) {
+        if (lastNow) fps += (1000 / Math.max(1, now - lastNow) - fps) * 0.05; lastNow = now;
+        pass.update(sh.S.turned ? sh.S.rot : 0);
+        if (now - lastTick > 700) { lastTick = now; const s = wins.get('status'); if (s) s.redraw(); }
+      } });
+    // the camera's view across: about 100 degrees for the widest lens, about 68 for the ordinary one
+    pass = VRE.passthrough({ camera: sh.camera, scene: sh.scene, vid: sh.vid, across: 100, value: VRE.store.get('vrHomeSurround', 0.5) });
+    wins = VRE.windows({ scene: sh.scene, camera: sh.camera, pointer: sh.pointer, sound: sh.sound, key: 'vrHomeWindows' });
+    // The icons and the windows take turns: while a window is open the icons step aside, so nothing lies behind a
+    // window to be picked by mistake, and a single Home icon, low down, closes the windows and brings the icons back.
+    const tidy = () => { const any = wins.list.length > 0; home.show(!any); dock.show(any); };
+    const openApp = (a) => { if (!APPS[a.app]) return sh.note('That app is not here yet', 1500); const w = APPS[a.app](); if (w && w.spec && !w.spec.onClose) w.spec.onClose = () => setTimeout(tidy, 0); tidy(); };
+    const dock = VRE.home({ scene: sh.scene, pointer: sh.pointer, pitch: -33, apps: VRE.readApps([{ name: 'Home', icon: '⌂', kind: 'window', app: 'home', color: '#7a5c1e' }]).apps, onWindow() { wins.closeAll(); tidy(); } });
+    dock.show(false);
+    home = VRE.home({ scene: sh.scene, pointer: sh.pointer, apps: list.apps, onWindow: openApp,
+      onPage(url, app) { sh.note('Opening ' + app.name, 900); setTimeout(() => location.assign(url), 350); } });
+    if (list.failed || !list.apps.length) $('status').textContent = 'The list of apps could not be read.';
+    window.__home = { sh, wins, pass, home, dock, APPS, list };
+  }
+  $('go').onclick = async () => {
+    if (sh) return sh.start();
+    // the page's own parts are made first, quickly and without waiting on the network where it can be helped; the motion
+    // question must still come from this press, so the apps list was fetched ahead (below) and is only awaited if late
+    await ready; sh.start();
+  };
+  const ready = build().catch((e) => { $('status').textContent = 'The home screen could not be set up: ' + (e && e.message); });
+})();
+</script>
+</body>
+</html>

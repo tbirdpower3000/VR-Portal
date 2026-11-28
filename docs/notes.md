@@ -70,3 +70,21 @@ Platform facts checked for v2 (28 Nov): no WebXR on iPhone (Safari has it only o
 Unknown until tried on the phone: whether the count of three is long enough to get the phone into the viewer; drift of straight ahead over a few minutes; whether rotation lock still comes out upright through `head.fit`.
 
 Later (not in 2.0.0): eye tracking, room tracking or pinning windows to real surfaces, avatars, a keyboard, 3D photos and video, a WebXR path for Android Chrome.
+
+## 28 Nov 2026: v2 steps 2 to 5, the spatial home (engine 2.0.0)
+
+Built in one go on top of step 1: `VRE.pointer` (ring, hover, pinch, drag, hold, resting the ring), `VRE.windows`, `VRE.home` with `apps.json`, `VRE.passthrough`, placed sound, and `VRE.shell`, which runs them in one order every picture: head, hand, ring, the page's own work, drawing. 49 headless checks. Nothing tried on a phone.
+
+Decisions, and why:
+- **Dragging follows the head, not the hand.** Pinch a window's bar and turn your head. The hand only has to stay pinched, wherever it is, so the arm does not move at all. A hand-driven drag was not built.
+- **The pick is locked when the pinch begins.** Checked by pinching on one disc, turning to another, and letting go: the first disc gets the pick.
+- **A lost hand cancels.** If the hand disappears mid-pinch nothing is picked.
+- **Controls before icons before panels.** Found by a failing check: with two windows overlapping, one window's panel took the ring from the other's resize corner. Targets now carry a rank.
+- **Icons and windows take turns.** Found the same way: a window opened in front of the icon grid, and picking a button in it picked the icon behind. While a window is open the icons step aside and one Home icon, low down, brings them back.
+- **The camera picture covers the view.** At true size (100 degrees across for the widest lens) a sideways picture is only about 68 degrees tall and left black bands above and below. It is enlarged just enough to reach 42 degrees up and down; the Status window shows the factor.
+- **The pinch for picking** is thumb tip to index tip over hand size, on at 0.30, off at 0.48, seen twice running: the atlas's figures.
+- **A start-up race:** the shell set "on" before "counting", so for a moment a page could see a running shell that was not counting. Order swapped.
+
+Target sizes: the wall in `examples/v2-pointer.html` has discs of 1.5 to 8 degrees and keeps hits, misses and time per size (also saved as `vrV2PointerRuns`). The 3 degree floor is from other people's measurements; this is how to get our own.
+
+Unknown until tried on the phone: whether head-aim with a low pinch is comfortable for the 7 degree icons; whether the pinch reads well with the hand low in the widest camera's picture; frame rate with the camera picture behind everything and the hand finder running; whether 100 degrees is the right figure for the iPhone's widest lens; whether iPhone Safari gives 60 camera pictures a second (the Status window shows what it gave).

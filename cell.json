@@ -3,8 +3,12 @@
   "parent": "tbirdpower3000",
   "children": [
     "v1/vr-engine.js",
-    "v2/vr-engine.js (in the making: 2.0.0-alpha.1)",
+    "v2/vr-engine.js (2.0.0: the spatial home)",
+    "home.html",
+    "apps.json",
     "examples/v2-head.html",
+    "examples/v2-pointer.html",
+    "examples/v2-windows.html",
     "tests/engine-v2.test.cjs",
     "examples/demo.html",
     "tests/engine.test.cjs"
@@ -21,6 +25,7 @@
   "pattern": {
     "group": "mirror, order 2: the two eyes (VRE.mirror)",
     "recursion": "picture split into overlapping half-size parts (VRE.subdivide), depth 1 in use, any depth available",
+    "v2": "one ring, seen by both eyes through the mirror rule; every pickable thing is a flat patch with a size in degrees (3 at least); windows and icons sit on one ball of radius 1.5 m round the head",
     "depthLimit": "depth 1: nine parts; each extra level quadruples the looks needed to scan the picture"
   }
 }

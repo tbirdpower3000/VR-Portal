@@ -18,12 +18,12 @@ const server = http.createServer((req, res) => {
   if (!f.startsWith(ROOT) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res);
 });
-const results = []; const ok = (name, pass, got) => results.push({ name, pass: !!pass, got });
+const results = []; const ok = (name, pass, got) => { results.push({ name, pass: !!pass, got }); console.log((pass ? '  ok   ' : '  FAIL ') + name + (pass || got == null ? '' : '  (got ' + got + ')')); };
 
 (async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = 'http://127.0.0.1:' + server.address().port;
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] }); // a made-up camera, allowed without asking
   const open = async (init) => {
     const page = await browser.newPage({ viewport: { width: 852, height: 393 }, deviceScaleFactor: 2 });
     page.errors = []; page.on('pageerror', (e) => page.errors.push(e.message));
@@ -92,8 +92,172 @@ const results = []; const ok = (name, pass, got) => results.push({ name, pass: !
     await page.close();
   }
 
+
+  // =================== steps 2 to 5: look and pinch, windows, the home screen, see-through, 3D sound ===================
+  const openAt = async (file, init) => {
+    const ctx = await browser.newContext({ viewport: { width: 852, height: 393 }, deviceScaleFactor: 1, permissions: ['camera'] });
+    const page = await ctx.newPage();
+    page.errors = []; page.warns = []; page.on('pageerror', (e) => page.errors.push(e.message)); page.on('console', (m) => m.type() === 'warning' && page.warns.push(m.text()));
+    await page.route('**/three.min.js', (r) => r.fulfill({ path: threeJs(), contentType: 'text/javascript' }));
+    await page.route('**/vision_bundle.mjs*', (r) => r.fulfill({ path: path.join(__dirname, 'fake-hands-v2.mjs'), contentType: 'text/javascript' }));
+    await page.addInitScript(() => { try { delete DeviceOrientationEvent.requestPermission; } catch (e) {} window.__fake = { on: true, pinch: false }; });
+    if (init) await page.addInitScript(init);
+    await page.goto(base + file, { waitUntil: 'load' });
+    return page;
+  };
+  const start = async (page, hook) => { await page.waitForFunction((h) => document.getElementById('go') && window.VRE, hook); await page.click('#go'); await page.waitForFunction((h) => window[h] && window[h].sh.S.on && !window[h].sh.S.counting, hook, { timeout: 20000 }); await page.waitForTimeout(400); };
+  // turn the head to look straight at an object (or a point on it, in its own units)
+  const lookAt = (page, hook, pathJs, lx, ly) => page.evaluate(([h, pjs, lx, ly]) => new Promise((res) => { const K = window[h], o = new Function('K', 'return ' + pjs)(K); o.updateWorldMatrix(true, false); const p = new THREE.Vector3(lx || 0, ly || 0, 0).applyMatrix4(o.matrixWorld).normalize(); K.sh.head.test.look(-Math.atan2(p.x, -p.z) * 57.29578, Math.asin(p.y) * 57.29578); requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))); }), [hook, pathJs, lx, ly]);
+  const lookDir = (page, hook, yaw, pitch) => page.evaluate(([h, y, p]) => new Promise((res) => { window[h].sh.head.test.look(-y, p); requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))); }), [hook, yaw, pitch]);
+  const pinch = async (page, on, ms) => { await page.evaluate((v) => (window.__fake.pinch = v), on); await page.waitForTimeout(ms || 260); };
+  const fromFlag = (await fs.promises.readFile(path.join(ROOT, 'apps.json'), 'utf8'));
+
+  // ---- sizes by angle, the mirror rule, 3D sound, the apps list (no room needed) ----
+  let pg = await openAt('/examples/v2-pointer.html?stereo=1');
+  await start(pg, '__v2p');
+  const pure = await pg.evaluate((appsText) => {
+    const sh = window.__v2p.sh, out = {};
+    out.a1 = VRE.angle(1, 1); out.a3 = VRE.angle(1, 3); out.back = VRE.angle(VRE.sizeAt(3, 1.5), 1.5);
+    // the ring is one thing in the scene; each eye sees it from its own side, and the two views are mirror images
+    sh.head.test.look(0, 0); sh.head.apply(); sh.stereo.aspect = 0.5; sh.stereo.update(sh.camera);
+    const p = new THREE.Vector3(); sh.pointer.ring.getWorldPosition(p);
+    const [l, r] = VRE.mirror((side) => p.clone().applyMatrix4((side < 0 ? sh.stereo.cameraL : sh.stereo.cameraR).matrixWorld.clone().invert()));
+    out.mirror = [l.x + r.x, l.y - r.y, l.z - r.z, l.x];
+    out.degs = window.__v2p.discs.map((d) => { d.mesh.scale.setScalar(1); d.mesh.updateMatrixWorld(true); return [d.deg, +sh.pointer.degOf(d.target).toFixed(2)]; }); // (a lit disc is drawn a little larger: measured unlit)
+    sh.sound.tone('sine', 440, 440, 0.05, 0.05, { x: 1, y: 0, z: -1.5 }); out.placed = sh.sound.snd.placed; out.model = sh.sound.snd.model;
+    const warn = console.warn; let warned = 0; console.warn = () => warned++;
+    const bad = VRE.readApps([{ name: 'Good', kind: 'page', url: 'https://example.org/x' }, { name: 'No kind' }, { kind: 'page', url: 'x.html' }, { name: 'Script', kind: 'page', url: 'javascript:alert(1)' }, null, { name: 'Win', kind: 'window', app: 'w' }, { name: 'Win without app', kind: 'window' }]);
+    console.warn = warn;
+    out.apps = [bad.apps.length, bad.skipped.length, warned, bad.apps.map((a) => a.name).join()];
+    out.real = VRE.readApps(JSON.parse(appsText)); out.real = [out.real.apps.length, out.real.skipped.length];
+    out.home = VRE.fromHome('https://example.org/a') + ' ' + VRE.fromHome('b.html?x=1');
+    return out;
+  }, fromFlag);
+  ok('angle: a thing 1 wide covers 53.13 degrees from 1 away and 18.92 from 3 away', near(pure.a1, 53.13, 0.01) && near(pure.a3, 18.92, 0.01) && near(pure.back, 3, 1e-9), pure.a1.toFixed(2) + ' ' + pure.a3.toFixed(2));
+  ok('mirror: the ring is seen by the two eyes as exact mirror images', Math.abs(pure.mirror[0]) < 1e-9 && Math.abs(pure.mirror[1]) < 1e-9 && Math.abs(pure.mirror[2]) < 1e-9 && Math.abs(pure.mirror[3]) > 0.01, pure.mirror.map((v) => v.toExponential(1)).join(' '));
+  ok('each disc on the wall covers the angle it claims', pure.degs.every(([want, got]) => near(want, got, 0.02)), JSON.stringify(pure.degs));
+  ok('3D sound: a sound given a place in the room is placed with HRTF', pure.placed === 1 && pure.model === 'HRTF', pure.placed + ' ' + pure.model);
+  ok('apps list: good entries load, bad ones are left out with a warning each, nothing crashes', pure.apps[0] === 2 && pure.apps[1] === 5 && pure.apps[2] === 5 && pure.apps[3] === 'Good,Win', JSON.stringify(pure.apps));
+  ok('apps.json in the repo: every entry is good', pure.real[0] === 8 && pure.real[1] === 0, JSON.stringify(pure.real));
+  ok('a game opened from home is told so', pure.home === 'https://example.org/a?from=home b.html?x=1&from=home', pure.home);
+
+  // ---- look and pinch ----
+  const st = () => pg.evaluate(() => { const K = window.__v2p, P = K.sh.pointer.state; return { goal: K.goal.deg, hover: P.hover ? P.hover.deg : null, down: P.down, mode: P.mode, seen: K.sh.hand.seen, T: JSON.parse(JSON.stringify(K.T)), fill: P.fill }; });
+  await pg.waitForFunction(() => window.__v2p.sh.hand.seen, null, { timeout: 8000 });
+  let s0 = await st();
+  await lookAt(pg, '__v2p', 'K.goal.mesh');
+  let s1 = await st();
+  ok('hover: the disc under the ring is lit before any pinch', s1.hover === s0.goal && !s1.down, JSON.stringify({ goal: s0.goal, hover: s1.hover }));
+  await pinch(pg, true);
+  const down = (await st()).down;
+  await lookAt(pg, '__v2p', 'K.discs.find((d) => d !== K.goal).mesh'); // the head drifts onto another disc while the fingers are closed
+  await pinch(pg, false);
+  let s2 = await st();
+  ok('the pick is locked when the pinch begins: it goes to what was lit then, not to where the head ended up', down && s2.T[s0.goal].hit === 1 && Object.values(s2.T).reduce((a, v) => a + v.miss, 0) === 0, JSON.stringify(s2.T[s0.goal]));
+  await lookDir(pg, '__v2p', 60, 40); await pinch(pg, true, 200); await pinch(pg, false);
+  let s3 = await st();
+  ok('a pinch on nothing is counted as a miss, against the size being aimed for', s3.T[s3.goal].miss === 1, JSON.stringify(s3.T[s3.goal]));
+  await lookAt(pg, '__v2p', 'K.goal.mesh'); await pg.mouse.click(400, 150);
+  let s4 = await st();
+  ok('the viewer\'s button (a tap) picks what is lit', s4.T[s3.goal].hit === 1, JSON.stringify(s4.T[s3.goal]));
+  await lookDir(pg, '__v2p', 70, 45); await pinch(pg, true, 1300);
+  const fwdAfter = await pg.evaluate(() => { const f = new THREE.Vector3(0, 0, -1).applyQuaternion(window.__v2p.sh.camera.quaternion); return [f.x, f.y, f.z]; });
+  await pinch(pg, false);
+  ok('pinch and hold on empty space for a second sets straight ahead again', near(fwdAfter[0], 0, 0.02) && near(fwdAfter[2], -1, 0.02), fwdAfter.map((v) => v.toFixed(2)).join());
+  await pg.evaluate(() => (window.__fake.on = false));
+  await lookDir(pg, '__v2p', 60, 40); await pg.waitForTimeout(3400);
+  const gBefore = (await st()).goal;
+  await lookAt(pg, '__v2p', 'K.goal.mesh'); await pg.waitForTimeout(600);
+  const mid = await st();
+  await pg.waitForTimeout(700);
+  let s5 = await st();
+  ok('no hand for three seconds: resting the ring on a disc for a second picks it, and the ring fills meanwhile', mid.mode === 'dwell' && mid.fill > 0.3 && mid.fill < 1 && s5.T[gBefore].hit >= 1, JSON.stringify({ mode: mid.mode, fill: +mid.fill.toFixed(2), hit: s5.T[gBefore].hit }));
+  const looks = await pg.evaluate(() => { const a = window.__looks || []; let dup = 0, fast = 0; for (let i = 1; i < a.length; i++) { if (a[i] <= a[i - 1]) dup++; if (a[i] - a[i - 1] < 30) fast++; } return [a.length, dup, fast]; });
+  ok('the hand is looked for at most 30 times a second and never with a repeated time', looks[0] > 20 && looks[1] === 0 && looks[2] === 0, looks.join());
+  await pg.screenshot({ path: path.join(OUT, 'v2-pointer.png') });
+  ok('look and pinch: no errors on the page', pg.errors.length === 0, pg.errors.join(' | '));
+  await pg.context().close();
+
+  // ---- floating windows ----
+  pg = await openAt('/examples/v2-windows.html?stereo=1');
+  await start(pg, '__v2w');
+  const W = () => pg.evaluate(() => { const K = window.__v2w; return { n: K.wins.list.length, ids: K.wins.list.map((w) => w.id).join(), notes: (() => { const w = K.wins.get('notes'); return w ? { yaw: w.yaw * 57.29578, pitch: w.pitch * 57.29578, s: w.s, dist: w.g.position.length(), facing: new THREE.Vector3(0, 0, 1).applyQuaternion(w.g.quaternion).dot(w.g.position.clone().normalize()) } : null; })(), count: K.count, level: K.level, saved: K.wins.layout() }; });
+  let w0 = await W();
+  ok('two windows open, a metre and a half away, a little below eye level, not on top of each other', w0.n === 2 && near(w0.notes.dist, 1.5, 0.01) && w0.notes.pitch < 0 && w0.saved.notes && w0.saved.clock && Math.abs(w0.saved.notes.yaw - w0.saved.clock.yaw) > 24, JSON.stringify(w0.saved));
+  await lookDir(pg, '__v2w', 50, 20);
+  const stay = await W();
+  ok('windows stay where they are while the head turns', near(stay.notes.yaw, w0.notes.yaw, 1e-6), stay.notes.yaw.toFixed(2));
+  await lookAt(pg, '__v2w', "K.wins.get('notes').targets[0].object"); await pinch(pg, true);
+  const y0 = await pg.evaluate(() => { const f = new THREE.Vector3(0, 0, -1).applyQuaternion(window.__v2w.sh.camera.quaternion); return [Math.atan2(f.x, -f.z) * 57.29578, Math.asin(f.y) * 57.29578]; });
+  await lookDir(pg, '__v2w', y0[0] + 25, y0[1] + 10); await pg.waitForTimeout(200); await pinch(pg, false);
+  let w1 = await W();
+  ok('pinch the bar and turn the head: the window goes with you, keeps its distance and faces you', near(w1.notes.yaw - w0.notes.yaw, 25, 1.5) && near(w1.notes.pitch - w0.notes.pitch, 10, 1.5) && near(w1.notes.dist, 1.5, 0.01) && w1.notes.facing < -0.999, JSON.stringify(w1.notes));
+  ok('where it was left is saved', near(w1.saved.notes.yaw, w1.notes.yaw, 0.1), JSON.stringify(w1.saved.notes));
+  await lookAt(pg, '__v2w', "K.wins.get('notes').targets[2].object"); await pinch(pg, true);
+  const y1 = await pg.evaluate(() => { const f = new THREE.Vector3(0, 0, -1).applyQuaternion(window.__v2w.sh.camera.quaternion); return [Math.atan2(f.x, -f.z) * 57.29578, Math.asin(f.y) * 57.29578]; });
+  await lookDir(pg, '__v2w', y1[0] + 12, y1[1]); await pg.waitForTimeout(200); await pinch(pg, false);
+  let w2 = await W();
+  ok('pinch the corner and turn right: the window grows', w2.notes.s > 1.2 && w2.notes.s <= 1.8, w2.notes.s.toFixed(2));
+  await lookAt(pg, '__v2w', "K.wins.get('clock').panel", (60 + 180) / 1000 - 0.45, 0.3 - (84 + 200 + 55) / 1000); await pinch(pg, true); await pinch(pg, false);
+  await lookAt(pg, '__v2w', "K.wins.get('clock').panel", (470 + 6 + 0.75 * 358) / 1000 - 0.45, 0.3 - (84 + 230 + 35) / 1000); await pinch(pg, true); await pinch(pg, false);
+  let w3 = await W();
+  ok('inside a window: the button is picked, and the slider is set where it is picked', w3.count === 1 && near(w3.level, 0.75, 0.03), w3.count + ' ' + w3.level.toFixed(3));
+  await lookAt(pg, '__v2w', "K.wins.get('notes').targets[1].object"); await pinch(pg, true); await pinch(pg, false);
+  let w4 = await W();
+  ok('the dot closes a window, and that is remembered', w4.n === 1 && w4.ids === 'clock' && w4.saved.notes.open === false, w4.ids);
+  await lookAt(pg, '__v2w', 'K.dock.icons[0].mesh'); await pinch(pg, true); await pinch(pg, false);
+  let w5 = await W();
+  ok('its icon opens it again where it was left', w5.n === 2 && !!w5.notes && near(w5.notes.yaw, w1.notes.yaw, 0.2) && near(w5.notes.s, w2.notes.s, 0.02), JSON.stringify(w5.notes) + ' ' + w5.ids);
+  const five = await pg.evaluate(() => { const K = window.__v2w; ['a', 'b', 'c'].forEach((id) => K.wins.open({ id, title: id, w: 0.5, h: 0.3 })); return K.wins.list.map((w) => w.id).join(); });
+  ok('at most four windows: a fifth closes the one used longest ago', five.split(',').length === 4 && five.endsWith('a,b,c'), five);
+  await pg.screenshot({ path: path.join(OUT, 'v2-windows.png') });
+  ok('windows: no errors on the page', pg.errors.length === 0, pg.errors.join(' | '));
+  // a fresh visit: the windows come back where they were left
+  const pg2 = await pg.context().newPage();
+  await pg2.route('**/three.min.js', (r) => r.fulfill({ path: threeJs(), contentType: 'text/javascript' }));
+  await pg2.route('**/vision_bundle.mjs*', (r) => r.fulfill({ path: path.join(__dirname, 'fake-hands-v2.mjs'), contentType: 'text/javascript' }));
+  await pg2.addInitScript(() => { try { delete DeviceOrientationEvent.requestPermission; } catch (e) {} window.__fake = { on: true, pinch: false }; });
+  await pg2.goto(base + '/examples/v2-windows.html?stereo=1', { waitUntil: 'load' });
+  await start(pg2, '__v2w');
+  const again = await pg2.evaluate(() => { const w = window.__v2w.wins.get('notes'); return w ? [w.yaw * 57.29578, w.s] : [NaN, NaN, window.__v2w.wins.list.map((q) => q.id).join()]; });
+  ok('on the next visit the layout is read back from the store', near(again[0], w1.notes.yaw, 0.2) && near(again[1], w2.notes.s, 0.02), again.map((v) => v.toFixed(2)).join());
+  await pg.context().close();
+
+  // ---- the home screen, see-through and pacing ----
+  pg = await openAt('/home.html?stereo=1');
+  const asked = []; pg.on('request', (q) => { if (/Skeet-Game/.test(q.url())) asked.push(q.url()); });
+  await pg.route('**/Skeet-Game/**', (r) => r.fulfill({ body: '<title>stand-in for the game</title>', contentType: 'text/html' }));
+  await start(pg, '__home');
+  const H = () => pg.evaluate(() => { const K = window.__home; return { icons: K.home.icons.length, names: K.home.icons.map((i) => i.app.name).join(), wins: K.wins.list.map((w) => w.id).join(), v: K.pass.value, live: K.pass.state.live, plane: K.pass.plane.visible, sky: K.pass.sky.visible, skyOp: K.pass.sky.material.opacity, bright: K.pass.plane.material.color.r, across: K.home.icons.map((i) => +K.sh.pointer.degOf(i.target).toFixed(1)), gap: Math.abs(K.home.icons[0].yaw - K.home.icons[1].yaw) * 57.29578 }; });
+  await pg.waitForFunction(() => window.__home.pass.state.live, null, { timeout: 8000 });
+  let h0 = await H();
+  ok('home: the icons come from apps.json, each well over 3 degrees across and 11 degrees apart', h0.icons === 8 && h0.across.every((d) => d >= 7) && near(h0.gap, 11, 0.01), h0.names + ' ' + h0.across[0] + ' ' + h0.gap.toFixed(1));
+  ok('see-through starts as the room dimmed: the camera picture is shown darker, the sky is not', h0.live && h0.plane && !h0.sky && near(h0.v, 0.5, 1e-9) && h0.bright < 0.5 && h0.bright > 0.2, JSON.stringify({ v: h0.v, bright: +h0.bright.toFixed(2) }));
+  await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.app === 'surroundings').mesh"); await pinch(pg, true); await pinch(pg, false);
+  let h1 = await H();
+  const aside = await pg.evaluate(() => [window.__home.home.shown, window.__home.dock.shown]);
+  ok('picking a window icon opens its window, and the icons step aside for it', h1.wins === 'surroundings' && aside[0] === false && aside[1] === true, h1.wins + ' ' + aside.join());
+  await lookAt(pg, '__home', "K.wins.get('surroundings').panel", (600 + 125) / 1000 - 0.45, 0.25 - (84 + 80 + 45) / 1000); await pinch(pg, true); await pinch(pg, false);
+  let h2 = await H();
+  ok('"Sky" swaps the room for the scene: the camera picture is hidden, the sky fully shown', near(h2.v, 1, 1e-9) && !h2.plane && h2.sky && near(h2.skyOp, 1, 1e-9), JSON.stringify(h2));
+  await lookAt(pg, '__home', "K.wins.get('surroundings').panel", (40 + 125) / 1000 - 0.45, 0.25 - (84 + 80 + 45) / 1000); await pinch(pg, true); await pinch(pg, false);
+  let h3 = await H();
+  ok('"My room" shows the camera picture at full brightness', near(h3.v, 0, 1e-9) && h3.plane && !h3.sky && near(h3.bright, 1, 1e-9), JSON.stringify({ v: h3.v, bright: h3.bright }));
+  const paced = await pg.evaluate(() => { const sh = window.__home.sh, before = sh.perf.pr; let t = performance.now(); for (let i = 0; i < 400; i++) { t += 40; sh.pace(t, 40); } return [before, sh.perf.pr]; });
+  ok('with see-through on, slow pictures still lower the sharpness (the pacing still works)', paced[1] < paced[0] || paced[0] === 1, paced.join(' -> '));
+  await pg.screenshot({ path: path.join(OUT, 'v2-home-window.png') });
+  await lookAt(pg, '__home', 'K.dock.icons[0].mesh'); await pinch(pg, true); await pinch(pg, false);
+  const back = await pg.evaluate(() => [window.__home.wins.list.length, window.__home.home.shown, window.__home.dock.shown]);
+  ok('the Home icon closes the windows and brings the icons back', back[0] === 0 && back[1] === true && back[2] === false, back.join());
+  await pg.screenshot({ path: path.join(OUT, 'v2-home.png') });
+  ok('home: no errors on the page', pg.errors.length === 0, pg.errors.join(' | '));
+  await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.name === 'Skeet VR').mesh"); await pinch(pg, true); await pinch(pg, false);
+  await pg.waitForTimeout(1200);
+  ok('picking a game icon goes to the game\'s page, saying it came from home', asked.some((u) => /Skeet-Game\/\?from=home$/.test(u)), asked.join(' '));
+  await pg.context().close();
+
   let failed = 0;
-  for (const c of results) { if (!c.pass) failed++; console.log((c.pass ? '  ok   ' : '  FAIL ') + c.name + (c.pass || c.got == null ? '' : '  (got ' + c.got + ')')); }
+  for (const c of results) if (!c.pass) failed++;
   console.log(`${results.length - failed} of ${results.length} checks passed. Screenshot: ${shot}`);
   await browser.close(); server.close();
   process.exit(failed ? 1 : 0);

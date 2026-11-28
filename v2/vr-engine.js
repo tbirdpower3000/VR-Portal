@@ -12,6 +12,13 @@
 //   VRE.lensChoice()     the Auto / Fisheye / Regular choice on a setup page
 //   VRE.hands()          the hand finder (graphics chip first, processor if not; looking at part of the picture)
 //   VRE.head()           which way the head is turned, from the phone's motion sensors (new in v2, taken out of Skeet VR)
+//   VRE.angle() VRE.sizeAt()   sizes by angle: how much of the view a thing covers (new in v2)
+//   VRE.pinch()          thumb to index, steady against one-off sightings (new in v2)
+//   VRE.pointer()        look and pinch: a ring where you aim, hover, pick, drag, hold; resting the ring when no hand is seen (new in v2)
+//   VRE.windows()        floating windows that can be moved, sized and closed, and remember where they were left (new in v2)
+//   VRE.readApps() VRE.loadApps() VRE.home()   the home screen of icons, from apps.json (new in v2)
+//   VRE.passthrough() VRE.skyTexture()   the room through the camera, blended with a scene (new in v2)
+//   VRE.shell()          all of the above set up and run in the right order, for a page that is a few lines (new in v2)
 //   VRE.steady() VRE.glide() VRE.handGuard()   steady, continuous hand control: cleaned sightings, gliding movement, false input refused
 //   VRE.lookGate()       when to look for the hand: never a repeated time, at most so many times a second, fewer when the view is slow
 //   VRE.fileStore()      large data files kept in the phone's own store after the first download
@@ -25,7 +32,7 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '2.0.0-alpha.1' };
+  const VRE = { version: '2.0.0' };
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -772,9 +779,22 @@
     // where a sound sits: -1 hard left to 1 hard right, from the direction of a point in the room
     const panTmp = new THREE.Vector3(), panQ = new THREE.Quaternion();
     const panOf = (pos) => Math.max(-1, Math.min(1, panTmp.copy(pos).applyQuaternion(panQ.copy(camera.quaternion).invert()).normalize().x * 1.6));
+    // Where a sound comes from. `pan` is either a number (-1 hard left to 1 hard right), or a place in the room,
+    // { x, y, z }: then the sound is put there in 3D (HRTF, which shapes it as your own ears would; the browser's default
+    // is a plain left-right balance, so it is asked for by name) and stays there as your head turns, once listen() is
+    // called every picture.
     function chain(pan, gain) {
       const g = ac.createGain();
       g.gain.value = gain;
+      if (pan && typeof pan === 'object' && ac.createPanner) {
+        const p = ac.createPanner();
+        p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 1.5; p.rolloffFactor = 0.5;
+        if (p.positionX) { p.positionX.value = pan.x; p.positionY.value = pan.y; p.positionZ.value = pan.z; } else p.setPosition(pan.x, pan.y, pan.z);
+        g.connect(p); p.connect(snd.out);
+        snd.placed = (snd.placed || 0) + 1; snd.model = p.panningModel;
+        return g;
+      }
+      if (typeof pan !== 'number') pan = 0;
       if (ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = pan || 0; g.connect(p); p.connect(snd.out); } else g.connect(snd.out);
       return g;
     }
@@ -793,7 +813,617 @@
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       src.connect(flt); flt.connect(g); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.02);
     }
-    return { snd, sndInit, panOf, tone, hiss, wake() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} }, get ac() { return ac; } };
+    // the listener is the head: call every picture so that placed sounds stay where they are as the head turns
+    const lf = new THREE.Vector3(), lu = new THREE.Vector3();
+    function listen() {
+      if (!ac || !ac.listener) return;
+      const L = ac.listener;
+      lf.set(0, 0, -1).applyQuaternion(camera.quaternion); lu.set(0, 1, 0).applyQuaternion(camera.quaternion);
+      if (L.forwardX) { L.forwardX.value = lf.x; L.forwardY.value = lf.y; L.forwardZ.value = lf.z; L.upX.value = lu.x; L.upY.value = lu.y; L.upZ.value = lu.z; }
+      else if (L.setOrientation) L.setOrientation(lf.x, lf.y, lf.z, lu.x, lu.y, lu.z);
+    }
+    return { snd, sndInit, panOf, tone, hiss, listen, wake() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} }, get ac() { return ac; } };
+  };
+
+  // =====================================================================================================================
+  // v2: the spatial home. Look and pinch, floating windows, a home screen of icons, a see-through mode.
+  // What a phone in a browser cannot do, and so what this does not try: it cannot see your eyes, so the middle of
+  // your view stands in for where you are looking (a small ring marks it); and it cannot tell where you are standing,
+  // only which way you are turned, so things stay put as your head turns but cannot hold their place as you walk.
+  // =====================================================================================================================
+
+  // ---------- sizes by angle ----------
+  // In a viewer what matters is how much of your view a thing covers, not how many pixels: a target must cover at least
+  // 3 degrees to be picked comfortably with the head. A thing w wide at distance d covers 2 atan(w / 2d).
+  VRE.angle = (w, d) => (2 * Math.atan(w / (2 * d))) / D;   // degrees covered by a width w seen from d away
+  VRE.sizeAt = (deg, d) => 2 * d * Math.tan((deg * D) / 2); // the width that covers deg degrees from d away
+  VRE.MIN_TARGET_DEG = 3;
+
+  // ---------- the pinch ----------
+  // Thumb tip to index tip, measured against the hand's own size so it reads the same near and far. It closes below
+  // `on` and opens above `off` (two levels, so it cannot flutter at one), and a change must be seen twice running, so a
+  // single odd sighting neither pinches nor lets go. The hand can be anywhere the camera sees it, low by the waist too.
+  VRE.pinch = function (opts) {
+    const o = Object.assign({ on: 0.3, off: 0.48, twice: 2 }, opts || {});
+    let pinch = false, n = 0, ratio = 1;
+    const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z || 0) - (b.z || 0));
+    return {
+      get pinching() { return pinch; },
+      get ratio() { return ratio; },
+      // pts: the hand's 21 points (the 3D ones where there are any), or null when no hand is seen
+      feed(pts) {
+        if (!pts) { pinch = false; n = 0; return false; }
+        ratio = d3(pts[4], pts[8]) / Math.max(1e-6, d3(pts[0], pts[9]));
+        const says = pinch ? !(ratio > o.off) : ratio < o.on;
+        if (says === pinch) n = 0;
+        else if (++n >= o.twice) { pinch = says; n = 0; }
+        return pinch;
+      },
+      reset() { pinch = false; n = 0; },
+    };
+  };
+
+  // ---------- look and pinch ----------
+  // The head aims, the hand acts. A ring in the middle of the view shows where you are aiming; whatever it rests on
+  // lights up (hover), and a pinch picks it. The hand need not point at anything.
+  //   - A target is a flat patch on an object: half-width hw and half-height hh in the object's own units, or round.
+  //   - The target is LOCKED when the pinch begins: the pick goes to what was lit at that moment, wherever the head has
+  //     drifted to by the time the fingers open (pinching nudges the head; the training page showed what that costs).
+  //   - Pinch and let go: pick. Pinch and turn the head: drag (for targets that can be moved). Pinch and hold still:
+  //     "more" for the target, or, on empty space for a second, straight ahead is set again.
+  //   - No hand seen for three seconds: resting the ring on a target for a second picks it instead (the ring fills).
+  //     A thing that can only be dragged is picked up that way and put down by holding the head still.
+  //   - press() is the viewer's button or a tap on the screen: it picks what is lit.
+  // const pointer = VRE.pointer({ camera, sound, onRecenter, onPick });
+  //   const t = pointer.add({ object, hw, hh, round, on: { hover(bool), select(hit), hold(), dragStart(), drag(d), dragEnd() } })
+  //   pointer.update(now, { pinch, seen })   every picture, after the head has been applied
+  VRE.pointer = function (o) {
+    const camera = o.camera;
+    const HOLD_MS = 800, EMPTY_HOLD_MS = 1000, DRAG_DEG = 2.5, NO_HAND_MS = 3000, DWELL_MS = 1000, STICK = 1.15;
+    const P = {
+      targets: [], hover: null, hit: null, lock: null, lockHit: null, down: false, drag: false, held: false, t0: 0,
+      mode: 'pinch', lastSeen: -1e9, dwellOn: null, dwellT: 0, spent: null, cool: 0, carry: null, fill: 0, seen: false,
+      picks: 0, misses: 0,
+    };
+    const fwd = new THREE.Vector3(), f0 = new THREE.Vector3(), org = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), inv = new THREE.Matrix4();
+    const yawOf = (v) => Math.atan2(v.x, -v.z), pitchOf = (v) => Math.asin(Math.max(-1, Math.min(1, v.y)));
+    let yaw0 = 0, pitch0 = 0, stillSince = 0, stillRef = new THREE.Vector3();
+
+    // the ring: one thing in the scene, seen by both eyes (the mirror rule does the rest). It sits at the distance of
+    // whatever it rests on, so the two eyes agree about where it is.
+    const ring = new THREE.Group();
+    const mat = (c, op) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, depthTest: false, depthWrite: false });
+    const outer = new THREE.Mesh(new THREE.RingGeometry(0.0075, 0.0105, 40), mat(0xe9eef5, 0.9));
+    const fillM = new THREE.Mesh(new THREE.CircleGeometry(0.0075, 32), mat(0xffd88a, 0.95));
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.0016, 12), mat(0xe9eef5, 0.9));
+    [outer, fillM, dot].forEach((m) => { m.renderOrder = 60; ring.add(m); });
+    fillM.scale.setScalar(0.001);
+    camera.add(ring);
+    const REST = 1.5;
+    ring.position.set(0, 0, -REST); ring.scale.setScalar(REST);
+
+    const shown = (obj) => { for (let x = obj; x; x = x.parent) if (!x.visible) return false; return true; };
+    function cast() {
+      camera.getWorldPosition(org);
+      camera.getWorldDirection(fwd);
+      let best = null, bs = Infinity, bx = 0, by = 0, bp = -1;
+      for (const t of P.targets) {
+        if (t.off || !shown(t.object)) continue;
+        inv.copy(t.object.matrixWorld).invert();
+        a.copy(org).applyMatrix4(inv); b.copy(org).add(fwd).applyMatrix4(inv).sub(a);
+        if (Math.abs(b.z) < 1e-9) continue;
+        const s = -a.z / b.z;
+        if (!(s > 0)) continue;
+        const x = a.x + b.x * s, y = a.y + b.y * s, k = t === P.hover ? STICK : 1; // what is lit keeps the ring a little past its edge
+        if (!(t.round ? Math.hypot(x, y) <= t.hw * k : Math.abs(x) <= t.hw * k && Math.abs(y) <= t.hh * k)) continue;
+        // where two things lie one over the other, a control (a window's bar, dot or corner) comes before an icon, and an
+        // icon before a window's panel; among equals, the nearer one, with what is already lit holding on a little
+        const pri = t.pri || 0;
+        if (pri > bp || (pri === bp && s < bs + (t === P.hover ? 0.02 : 0))) { best = t; bs = s; bx = x; by = y; bp = pri; }
+      }
+      return best ? { t: best, s: bs, x: bx, y: by } : null;
+    }
+    const tick = (f) => { if (o.sound && o.sound.snd.on && o.sound.ac) o.sound.tone('sine', f, f * 0.98, 0.05, 0.12, 0); };
+    function setHover(h) {
+      const t = h ? h.t : null;
+      if (t !== P.hover) {
+        if (P.hover && P.hover.on.hover) P.hover.on.hover(false);
+        P.hover = t;
+        if (t && t.on.hover) t.on.hover(true);
+        if (t) tick(880);
+        P.dwellOn = null; P.spent = null;
+      }
+      P.hit = h ? { x: h.x, y: h.y, s: h.s } : null;
+      if (t && t.on.move) t.on.move(P.hit);
+    }
+    function pick(t, hit) {
+      if (t) { P.picks++; tick(1320); if (t.on.select) t.on.select(hit || P.hit); } else P.misses++;
+      if (o.onPick) o.onPick(t, hit);
+    }
+    const dragInfo = () => ({ dyaw: ((yawOf(fwd) - yaw0 + Math.PI * 3) % (Math.PI * 2)) - Math.PI, dpitch: pitchOf(fwd) - pitch0, yaw: yawOf(fwd), pitch: pitchOf(fwd) });
+    function begin() { f0.copy(fwd); yaw0 = yawOf(fwd); pitch0 = pitchOf(fwd); }
+
+    const api = {
+      state: P, ring,
+      add(t) { t.on = t.on || {}; if (t.hh == null) t.hh = t.hw; P.targets.push(t); return t; },
+      remove(t) { const i = P.targets.indexOf(t); if (i >= 0) P.targets.splice(i, 1); if (P.hover === t) setHover(null); if (P.lock === t) { P.lock = null; P.down = false; } if (P.carry === t) P.carry = null; },
+      // how many degrees of the view a target covers (its smaller side), from where the camera is
+      degOf(t) { t.object.getWorldPosition(a); camera.getWorldPosition(b); const s = new THREE.Vector3().setFromMatrixScale(t.object.matrixWorld).x; return VRE.angle(2 * Math.min(t.hw, t.hh) * s, a.distanceTo(b)); },
+      press() { cast(); pick(P.hover, P.hit); },
+      update(now, inp) {
+        const pinch = !!(inp && inp.pinch), seen = !!(inp && inp.seen);
+        if (seen) P.lastSeen = now;
+        P.seen = seen;
+        P.mode = o.allowDwell !== false && now - P.lastSeen > NO_HAND_MS ? 'dwell' : 'pinch';
+        const h = cast();
+        if (!P.down && !P.carry) setHover(h);
+        else P.hit = h && h.t === (P.lock || P.carry) ? { x: h.x, y: h.y, s: h.s } : P.hit;
+        P.fill = 0;
+        if (pinch && !P.down) { // the pinch begins: what is lit now is what it is for
+          P.down = true; P.lock = P.hover; P.lockHit = P.hit; P.drag = false; P.held = false; P.t0 = now; begin();
+          if (P.carry) { if (P.carry.on.dragEnd) P.carry.on.dragEnd(); P.carry = null; }
+        } else if (pinch && P.down) {
+          const moved = fwd.angleTo(f0) / D, L = P.lock;
+          if (!P.drag && L && L.on.drag && moved > DRAG_DEG) { P.drag = true; if (L.on.dragStart) L.on.dragStart(); }
+          if (P.drag) L.on.drag(dragInfo());
+          else if (!P.held && moved < DRAG_DEG) {
+            const need = L ? HOLD_MS : EMPTY_HOLD_MS;
+            P.fill = Math.min(1, (now - P.t0) / need);
+            if (now - P.t0 >= need) { P.held = true; if (L) { if (L.on.hold) L.on.hold(); } else if (o.onRecenter) o.onRecenter(); }
+          }
+        } else if (!pinch && P.down) { // the fingers open (or the hand was lost, and then nothing is picked)
+          P.down = false;
+          if (P.drag) { if (P.lock.on.dragEnd) P.lock.on.dragEnd(); }
+          else if (!P.held && seen) pick(P.lock, P.lockHit);
+          P.lock = null; P.drag = false;
+        } else if (P.mode === 'dwell') {
+          if (P.carry) { // being carried by the head: put down when the head has been still for a second
+            P.carry.on.drag(dragInfo());
+            if (fwd.angleTo(stillRef) / D > 1.2) { stillRef.copy(fwd); stillSince = now; }
+            P.fill = Math.min(1, (now - stillSince) / DWELL_MS);
+            if (now - stillSince >= DWELL_MS) { if (P.carry.on.dragEnd) P.carry.on.dragEnd(); P.carry = null; P.cool = now + 1200; }
+          } else if (P.hover && P.hover.dwell !== false && P.hover !== P.spent && now > P.cool) {
+            if (P.dwellOn !== P.hover) { P.dwellOn = P.hover; P.dwellT = now; }
+            P.fill = Math.min(1, (now - P.dwellT) / DWELL_MS);
+            if (now - P.dwellT >= DWELL_MS) {
+              const t = P.hover;
+              P.spent = t; P.dwellOn = null; P.cool = now + 600; // the ring must leave and come back before it picks the same thing again
+              if (t.on.drag && !t.on.select) { P.carry = t; begin(); stillRef.copy(fwd); stillSince = now; if (t.on.dragStart) t.on.dragStart(); }
+              else pick(t, P.hit);
+            }
+          } else P.dwellOn = null;
+        }
+        // the ring: on the thing it rests on, gold while that thing is lit, filling as a hold or a rest runs
+        const d = P.hit && (P.hover || P.lock || P.carry) ? Math.max(0.3, P.hit.s * 0.985) : REST;
+        ring.position.z = -d; ring.scale.setScalar(d);
+        const lit = !!(P.hover || P.lock || P.carry);
+        outer.material.color.setHex(lit ? 0xffd88a : P.mode === 'dwell' ? 0x9fb0c6 : seen ? 0x7fc8ff : 0xe9eef5);
+        outer.scale.setScalar(P.down ? 0.8 : 1);
+        fillM.scale.setScalar(Math.max(0.001, P.fill));
+      },
+    };
+    return api;
+  };
+
+  // ---------- floating windows ----------
+  // A window is a flat panel of frosted glass about a metre and a half away, drawn from a canvas. Under it is a bar:
+  // pinch the bar and turn your head, and the window goes with you, keeping its distance and turning to face you.
+  // Beside the bar, a dot closes it and a corner makes it larger or smaller. Windows stay where they are put while your
+  // head turns; they are never fixed to your head. (They cannot stay behind as you walk: the phone cannot tell.)
+  // At most four are open; opening a fifth closes the one used longest ago. Where each was left is remembered.
+  // const wins = VRE.windows({ scene, camera, pointer, sound, key: 'myLayout' });
+  //   const w = wins.open({ id, title, w, h, draw(ctx, W, H, win), spots: [{ id, x, y, w, h, label, select(win), slide(frac, win) }] })
+  //   w.redraw()  w.close()   wins.list   wins.layout()
+  VRE.windows = function (o) {
+    const R = o.R || 1.5, MAX = o.max || 4, key = o.key || 'vrWindows', scene = o.scene, camera = o.camera, pointer = o.pointer;
+    const list = [], saved = store.get(key, {});
+    const INK = '#e9eef5', GOLD = '#ffd88a', FONT = '"Instrument Sans", system-ui, sans-serif';
+    const fwd = new THREE.Vector3();
+    const rr = (x, a, b, w, h, r) => { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); };
+    const save = () => { const out = {}; Object.keys(saved).forEach((k) => (out[k] = saved[k])); list.forEach((w) => (out[w.id] = { yaw: +(w.yaw / D).toFixed(1), pitch: +(w.pitch / D).toFixed(1), s: +w.s.toFixed(2), open: true })); Object.assign(saved, out); store.set(key, saved); };
+    const glyph = (size, drawFn) => { // a small flat sign (the bar, the dot, the corner), drawn once
+      const c = document.createElement('canvas'); c.width = c.height = 128;
+      const x = c.getContext('2d'); drawFn(x);
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(size[0], size[1]), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false, depthWrite: false, opacity: 0.75 }));
+      m.renderOrder = 31;
+      return m;
+    };
+    function place(w) { // on a ball round you, R away, facing you
+      w.g.position.set(Math.sin(w.yaw) * Math.cos(w.pitch) * R, Math.sin(w.pitch) * R, -Math.cos(w.yaw) * Math.cos(w.pitch) * R);
+      w.g.lookAt(0, 0, 0);
+      w.g.scale.setScalar(w.s);
+      w.g.updateMatrixWorld(true);
+    }
+    function paint(w) {
+      const { c, x } = w, W = c.width, H = c.height;
+      x.clearRect(0, 0, W, H);
+      rr(x, 3, 3, W - 6, H - 6, 34);
+      const g = x.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, 'rgba(34,50,80,0.80)'); g.addColorStop(1, 'rgba(10,17,32,0.80)');
+      x.fillStyle = g; x.fill();
+      x.lineWidth = 3; x.strokeStyle = 'rgba(233,238,245,0.30)'; x.stroke();
+      x.fillStyle = INK; x.font = '600 40px ' + FONT; x.textAlign = 'left'; x.textBaseline = 'middle';
+      x.fillText(w.title, 34, 44);
+      x.fillStyle = 'rgba(233,238,245,0.16)'; x.fillRect(28, 76, W - 56, 2);
+      x.save(); x.translate(0, 84);
+      if (w.spec.draw) w.spec.draw(x, W, H - 84, w);
+      (w.spec.spots || []).forEach((sp) => { // the parts of the window that can be picked
+        const hot = w.hot === sp;
+        rr(x, sp.x, sp.y, sp.w, sp.h, Math.min(22, sp.h / 2));
+        x.fillStyle = hot ? 'rgba(255,216,138,0.28)' : 'rgba(233,238,245,0.10)'; x.fill();
+        x.lineWidth = hot ? 4 : 2; x.strokeStyle = hot ? GOLD : 'rgba(233,238,245,0.35)'; x.stroke();
+        if (sp.slide) { // a slider: a track with a knob at its value
+          const v = Math.max(0, Math.min(1, sp.value ? sp.value(w) : 0));
+          x.fillStyle = 'rgba(127,200,255,0.55)'; rr(x, sp.x + 6, sp.y + sp.h / 2 - 5, (sp.w - 12) * v, 10, 5); x.fill();
+          x.fillStyle = INK; x.beginPath(); x.arc(sp.x + 6 + (sp.w - 12) * v, sp.y + sp.h / 2, Math.min(18, sp.h / 2 - 4), 0, 7); x.fill();
+        }
+        if (sp.label) { x.fillStyle = INK; x.font = '500 34px ' + FONT; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(typeof sp.label === 'function' ? sp.label(w) : sp.label, sp.x + sp.w / 2, sp.y + sp.h / 2 + (sp.slide ? -sp.h / 2 - 26 : 1)); }
+      });
+      x.restore();
+      w.tex.needsUpdate = true;
+    }
+    function spotAt(w, hit) { // the part of the window under the ring, from where the ring is on the panel
+      if (!hit) return null;
+      const px = (hit.x / w.w + 0.5) * w.c.width, py = (0.5 - hit.y / w.h) * w.c.height - 84;
+      return (w.spec.spots || []).find((sp) => px >= sp.x && px <= sp.x + sp.w && py >= sp.y && py <= sp.y + sp.h) || null;
+    }
+    const frac = (w, sp, hit) => Math.max(0, Math.min(1, ((hit.x / w.w + 0.5) * w.c.width - sp.x - 6) / (sp.w - 12)));
+    function close(w, quiet) {
+      const i = list.indexOf(w);
+      if (i < 0) return;
+      list.splice(i, 1);
+      w.targets.forEach((t) => pointer.remove(t));
+      scene.remove(w.g);
+      w.tex.dispose();
+      saved[w.id] = Object.assign(saved[w.id] || {}, { yaw: +(w.yaw / D).toFixed(1), pitch: +(w.pitch / D).toFixed(1), s: +w.s.toFixed(2), open: false });
+      store.set(key, saved);
+      if (!quiet && w.spec.onClose) w.spec.onClose(w);
+    }
+    const api = {
+      list, R, MAX,
+      layout: () => store.get(key, {}),
+      get: (id) => list.find((w) => w.id === id) || null,
+      closeAll() { list.slice().forEach((w) => close(w, true)); },
+      open(spec) {
+        let w = api.get(spec.id);
+        if (w) { w.used = performance.now(); return w; }
+        if (list.length >= MAX) close(list.slice().sort((p, q) => p.used - q.used)[0]); // the one used longest ago makes room
+        const ww = spec.w || 0.9, hh = spec.h || 0.6, PX = 1000;
+        const c = document.createElement('canvas'); c.width = Math.round(ww * PX); c.height = Math.round(hh * PX);
+        const tex = new THREE.CanvasTexture(c);
+        const panel = new THREE.Mesh(new THREE.PlaneGeometry(ww, hh), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+        panel.renderOrder = 30;
+        const g = new THREE.Group();
+        g.add(panel);
+        w = { id: spec.id, title: spec.title || '', spec, w: ww, h: hh, c, x: c.getContext('2d'), tex, g, panel, targets: [], hot: null, used: performance.now(), yaw: 0, pitch: -8 * D, s: 1,
+          redraw() { paint(w); }, close() { close(w); } };
+        // where it opens: where it was left, or straight ahead of where you are looking now and a little below eye level
+        const was = saved[spec.id];
+        if (was && typeof was.yaw === 'number') { w.yaw = was.yaw * D; w.pitch = (was.pitch || 0) * D; w.s = Math.max(0.6, Math.min(1.8, was.s || 1)); }
+        else {
+          camera.getWorldDirection(fwd);
+          w.yaw = Math.atan2(fwd.x, -fwd.z);
+          const near = (y) => list.some((q) => Math.abs(((q.yaw - y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 24 * D);
+          for (let k = 1; near(w.yaw) && k <= 6; k++) w.yaw += (k % 2 ? 1 : -1) * k * 38 * D; // not on top of another window
+        }
+        // the bar, the dot that closes, the corner that sizes
+        const lit = (m) => (on) => { m.material.opacity = on ? 1 : 0.75; m.scale.setScalar(on ? 1.15 : 1); };
+        const bar = glyph([0.34, 0.085], (x) => { x.fillStyle = INK; rr(x, 4, 52, 120, 24, 12); x.fill(); });
+        bar.position.set(0, -hh / 2 - 0.075, 0);
+        const dotM = glyph([0.07, 0.07], (x) => { x.fillStyle = INK; x.beginPath(); x.arc(64, 64, 40, 0, 7); x.fill(); x.strokeStyle = '#070b14'; x.lineWidth = 10; x.beginPath(); x.moveTo(46, 46); x.lineTo(82, 82); x.moveTo(82, 46); x.lineTo(46, 82); x.stroke(); });
+        dotM.position.set(-0.27, -hh / 2 - 0.075, 0);
+        const corner = glyph([0.09, 0.09], (x) => { x.strokeStyle = INK; x.lineWidth = 16; x.lineCap = 'round'; x.beginPath(); x.arc(40, 40, 62, 0.15, Math.PI / 2 - 0.15); x.stroke(); });
+        corner.position.set(ww / 2 + 0.01, -hh / 2 - 0.01, 0);
+        g.add(bar, dotM, corner);
+        let y0 = 0, p0 = 0, s0 = 1;
+        // the patches that can be picked are larger than what is drawn, so each covers 3 degrees or more
+        w.targets.push(pointer.add({ object: bar, hw: 0.17, hh: 0.045, kind: 'bar', pri: 2, win: w, on: {
+          hover: lit(bar), dragStart() { y0 = w.yaw; p0 = w.pitch; w.used = performance.now(); },
+          drag(d) { w.yaw = y0 + d.dyaw; w.pitch = Math.max(-50 * D, Math.min(50 * D, p0 + d.dpitch)); place(w); }, dragEnd: save } }));
+        w.targets.push(pointer.add({ object: dotM, hw: 0.045, round: true, kind: 'close', pri: 2, win: w, on: { hover: lit(dotM), select() { close(w); } } }));
+        w.targets.push(pointer.add({ object: corner, hw: 0.05, hh: 0.05, kind: 'size', pri: 2, win: w, on: {
+          hover: lit(corner), dragStart() { s0 = w.s; }, drag(d) { w.s = Math.max(0.6, Math.min(1.8, s0 * Math.exp((d.dyaw - d.dpitch) * 1.6))); place(w); }, dragEnd: save } }));
+        w.targets.push(pointer.add({ object: panel, hw: ww / 2, hh: hh / 2, kind: 'panel', win: w, dwell: true, on: {
+          hover(on) { if (!on && w.hot) { w.hot = null; paint(w); } },
+          move(hit) { const sp = spotAt(w, hit); if (sp !== w.hot) { w.hot = sp; paint(w); } },
+          select(hit) { const sp = spotAt(w, hit); w.used = performance.now(); if (!sp) return; if (sp.slide) sp.slide(frac(w, sp, hit), w); else if (sp.select) sp.select(w); paint(w); },
+        } }));
+        list.push(w);
+        scene.add(g);
+        place(w);
+        paint(w);
+        save();
+        if (o.sound && o.sound.snd.on && o.sound.ac) o.sound.tone('sine', 520, 780, 0.12, 0.14, { x: w.g.position.x, y: w.g.position.y, z: w.g.position.z });
+        return w;
+      },
+    };
+    return api;
+  };
+
+  // ---------- the list of apps ----------
+  // apps.json is a list of { name, icon, kind, url or app, color }: kind "page" opens a web page (a game), kind "window"
+  // opens a window that the page itself provides, named by `app`. An entry that is not right is left out with a warning,
+  // and the rest still load: adding an app never needs a change to the code.
+  VRE.readApps = function (json) {
+    const apps = [], skipped = [];
+    (Array.isArray(json) ? json : json && Array.isArray(json.apps) ? json.apps : []).forEach((e, i) => {
+      const why = !e || typeof e !== 'object' ? 'not an entry'
+        : typeof e.name !== 'string' || !e.name.trim() ? 'no name'
+        : e.kind !== 'page' && e.kind !== 'window' ? 'kind must be "page" or "window"'
+        : e.kind === 'page' && (typeof e.url !== 'string' || !/^(https:\/\/|\.{0,2}\/|[\w-]+[\w./-]*(\?|#|$))/.test(e.url) || /^\s*javascript:/i.test(e.url)) ? 'a page needs a url (https, or a path on this site)'
+        : e.kind === 'window' && (typeof e.app !== 'string' || !e.app) ? 'a window needs an app name'
+        : '';
+      if (why) { skipped.push({ index: i, name: e && e.name, why }); try { console.warn('apps.json: entry ' + i + ' left out (' + why + ')'); } catch (x) {} return; }
+      apps.push({ name: e.name.trim().slice(0, 24), icon: typeof e.icon === 'string' && e.icon ? [...e.icon].slice(0, 2).join('') : e.name.trim()[0].toUpperCase(), kind: e.kind, url: e.url, app: e.app, color: /^#[0-9a-f]{6}$/i.test(e.color || '') ? e.color : '#35507a' });
+    });
+    return { apps, skipped };
+  };
+  VRE.loadApps = async function (url) {
+    try { const r = await fetch(url, { cache: 'no-cache' }); if (!r.ok) throw new Error(r.status); return VRE.readApps(await r.json()); }
+    catch (e) { try { console.warn('apps.json could not be read: ' + (e && e.message)); } catch (x) {} return { apps: [], skipped: [], failed: true }; }
+  };
+  // the address a game is opened at from the home screen: it is told where it was opened from, so it can offer the way back
+  VRE.fromHome = (url) => url + (url.includes('?') ? '&' : '?') + 'from=home';
+
+  // ---------- the home screen ----------
+  // Round icons on a gentle curve a metre and a half away, a little below eye level. Each covers about 7 degrees, with
+  // 11 degrees from one to the next, so the ring cannot rest on two at once. Look at one and pinch: a game opens as its
+  // own page; a window app opens a window.
+  // const home = VRE.home({ scene, pointer, apps, onPage(url, app), onWindow(app) });   home.show(true / false)
+  VRE.home = function (o) {
+    const R = o.R || 1.5, PER_ROW = o.perRow || 4, STEP = 11 * D, ROW = 11.5 * D, TOP = (o.pitch != null ? o.pitch : -1) * D, ICON = VRE.sizeAt(7, R) / 2;
+    const g = new THREE.Group(), icons = [];
+    o.scene.add(g);
+    const disc = (app) => {
+      const c = document.createElement('canvas'); c.width = c.height = 256;
+      const x = c.getContext('2d'), gr = x.createRadialGradient(96, 80, 20, 128, 128, 128);
+      gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.12, app.color); gr.addColorStop(1, '#0b1424');
+      x.fillStyle = gr; x.beginPath(); x.arc(128, 128, 120, 0, 7); x.fill();
+      x.lineWidth = 6; x.strokeStyle = 'rgba(233,238,245,0.55)'; x.stroke();
+      x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.font = (/[\u0000-ÿ]/.test(app.icon[0]) ? '700 120px ' : '120px ') + 'system-ui, sans-serif';
+      x.fillText(app.icon, 128, 136);
+      return new THREE.CanvasTexture(c);
+    };
+    const rows = Math.ceil(o.apps.length / PER_ROW);
+    o.apps.forEach((app, i) => {
+      const r = Math.floor(i / PER_ROW), inRow = Math.min(PER_ROW, o.apps.length - r * PER_ROW), k = i - r * PER_ROW;
+      const yaw = (k - (inRow - 1) / 2) * STEP, pitch = TOP - r * ROW + ((rows - 1) * ROW) / 2;
+      const m = new THREE.Mesh(new THREE.CircleGeometry(ICON, 48), new THREE.MeshBasicMaterial({ map: disc(app), transparent: true, depthTest: false, depthWrite: false }));
+      m.renderOrder = 25;
+      const holder = new THREE.Group();
+      holder.position.set(Math.sin(yaw) * Math.cos(pitch) * R, Math.sin(pitch) * R, -Math.cos(yaw) * Math.cos(pitch) * R);
+      holder.lookAt(0, 0, 0);
+      const label = VRE.textPlane(ICON * 3.2, ICON * 0.62, 384, 74);
+      label.position.set(0, -ICON * 1.42, 0);
+      VRE.drawText(label, [app.name], { bg: false });
+      holder.add(m, label);
+      g.add(holder);
+      const t = o.pointer.add({ object: m, hw: ICON * 1.08, round: true, kind: 'icon', pri: 1, app, on: {
+        hover(on) { m.scale.setScalar(on ? 1.16 : 1); label.material.opacity = on ? 1 : 0.8; },
+        select() { if (app.kind === 'page') { if (o.onPage) o.onPage(VRE.fromHome(app.url), app); else location.assign(VRE.fromHome(app.url)); } else if (o.onWindow) o.onWindow(app); },
+      } });
+      label.material.opacity = 0.8;
+      icons.push({ app, mesh: m, holder, target: t, yaw, pitch });
+    });
+    return { group: g, icons, R, show(on) { g.visible = on; }, get shown() { return g.visible; } };
+  };
+
+  // ---------- a sky to stand in, drawn here ----------
+  // One picture of a whole surrounding (twice as wide as tall, the way a world map wraps a globe): dusk above, a soft
+  // glow along the horizon, stars, and dark ground. Made by this code, so there is nothing to download.
+  VRE.skyTexture = function () {
+    const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+    const x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 512);
+    g.addColorStop(0, '#04070f'); g.addColorStop(0.38, '#0b1730'); g.addColorStop(0.5, '#2a3f6b'); g.addColorStop(0.505, '#0a1322'); g.addColorStop(1, '#05080f');
+    x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
+    let s = 11; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 520; i++) { const y = Math.acos(rnd()) / Math.PI * 512 * 0.98, b = 0.35 + rnd() * 0.65; x.fillStyle = `rgba(${220 + (rnd() * 35) | 0},${225 + (rnd() * 30) | 0},255,${b})`; x.fillRect(rnd() * 1024, y, rnd() < 0.12 ? 2 : 1, rnd() < 0.12 ? 2 : 1); }
+    x.strokeStyle = 'rgba(127,200,255,0.10)'; x.lineWidth = 1;
+    for (let k = 1; k <= 6; k++) { const y = 256 + 256 * (1 - 1 / (1 + k * 0.5)) * 0.9; x.beginPath(); x.moveTo(0, y); x.lineTo(1024, y); x.stroke(); }
+    const t = new THREE.CanvasTexture(c);
+    return t;
+  };
+
+  // ---------- see-through ----------
+  // The rear camera's picture behind everything, the same flat picture in both eyes: it shows the room, it does not
+  // give it depth. One dial blends three things: the camera as it is (0), the camera dimmed so windows stand out (0.5),
+  // and a whole surrounding scene in place of the room (1).
+  // The picture is the very video that the hand finder already reads, sent to the graphics chip once a picture; it is
+  // never opened or decoded a second time. It is laid out by angle (the camera's view across, in degrees), so a thing
+  // straight ahead in the room is straight ahead in the viewer. The widest camera sees more than the eye does through
+  // the lenses, so only the middle of its picture ends up in view.
+  // const pass = VRE.passthrough({ camera, scene, vid, across: 100 });   pass.set(0..1)   pass.update()  each picture
+  VRE.passthrough = function (o) {
+    const FAR = 90, camera = o.camera;
+    const tex = new THREE.VideoTexture(o.vid);
+    tex.minFilter = tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, depthTest: false, depthWrite: false }));
+    plane.renderOrder = -20; plane.position.z = -FAR; plane.frustumCulled = false;
+    camera.add(plane);
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(60, 48, 24), new THREE.MeshBasicMaterial({ map: o.sky || VRE.skyTexture(), side: THREE.BackSide, transparent: true, depthTest: false, depthWrite: false }));
+    sky.renderOrder = -10; sky.frustumCulled = false; sky.scale.x = -1; // seen from inside, so flipped to read the right way round
+    o.scene.add(sky);
+    const P = { value: 0, across: o.across || 100, w: 0, h: 0, turn: 0, live: false };
+    const api = {
+      plane, sky, state: P,
+      get value() { return P.value; },
+      // 0 the room as the camera sees it, 0.5 the room dimmed, 1 the scene in its place
+      set(v) {
+        P.value = v = Math.max(0, Math.min(1, v));
+        const b = v <= 0.5 ? 1 - v * 1.3 : 0.35 * (1 - (v - 0.5) * 2);
+        plane.material.color.setScalar(Math.max(0, b));
+        sky.material.opacity = v <= 0.5 ? 0 : (v - 0.5) * 2;
+        sky.visible = v > 0.5;
+        plane.visible = P.live && v < 1;
+        if (!P.live) { sky.visible = true; sky.material.opacity = 1; } // no camera: the scene is all there is
+      },
+      // the camera's view across, in degrees (the widest lens is about 100, the ordinary one about 68), and whether the
+      // picture is turned a quarter with the phone (rotation lock)
+      update(turnDeg) {
+        const vw = o.vid.videoWidth, vh = o.vid.videoHeight, live = !!(vw && vh && o.vid.readyState >= 2);
+        if (live !== P.live) { P.live = live; api.set(P.value); }
+        if (!live || (vw === P.w && vh === P.h && (turnDeg || 0) === P.turn)) return;
+        P.w = vw; P.h = vh; P.turn = turnDeg || 0;
+        // True size first: the picture as wide as the camera's own view. But the eye sees about 42 degrees up and down
+        // through the lens, more than a sideways camera picture is tall, and bands of black above and below spoil it
+        // more than a little enlargement does. So it is enlarged just enough to cover the view (P.zoom says by how much;
+        // 1 is true size). Turned a quarter with the phone, width and height swap roles.
+        const trueW = 2 * FAR * Math.tan((P.across * D) / 2), cover = 2 * FAR * Math.tan(42 * D), turned = Math.abs(P.turn) === 90;
+        const tall = (trueW * vh) / vw, need = Math.max(cover / (turned ? trueW : tall), cover / (turned ? tall : trueW), 1);
+        P.zoom = need;
+        plane.scale.set(trueW * need, tall * need, 1);
+        plane.rotation.z = P.turn * D;
+      },
+      dispose() { camera.remove(plane); o.scene.remove(sky); tex.dispose(); },
+    };
+    api.set(o.value != null ? o.value : 0);
+    return api;
+  };
+
+  // ---------- the shell: everything a spatial page needs, in one call ----------
+  // Makes the drawing surface, the two eyes and the lens fitting, the head, the sound, the ring and (if asked) the
+  // camera and the hand finder, and runs them every picture in the right order: the head first, then the hand, then the
+  // ring, then the page's own work, then the drawing. A page built on it is a few lines: what is in the room.
+  // const sh = VRE.shell({ hands: true, onFrame(now, dt, sh), onStart(sh), onExit(sh) });
+  //   sh.start()   from the Start button's own press (the phone only asks about motion then)
+  //   sh.scene, sh.camera, sh.head, sh.pointer, sh.sound, sh.vid, sh.hand { seen, pinch }, sh.info, sh.say(text)
+  VRE.shell = function (o) {
+    o = o || {};
+    const $ = (id) => document.getElementById(id);
+    const TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0, Q = new URLSearchParams(location.search);
+    const STEREO = Q.has('stereo') ? Q.get('stereo') !== '0' : TOUCH;
+    const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+    if (!$('vreStyle')) {
+      const st = document.createElement('style'); st.id = 'vreStyle';
+      st.textContent = '#vreVr{position:fixed;inset:0;background:#000;overflow:hidden;z-index:50}#vreView{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#vreView canvas{display:block;width:100%;height:100%}' +
+        '#vreMid{position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;background:rgba(255,255,255,.35);pointer-events:none}#vreBtns{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);display:flex;gap:8px;z-index:3}' +
+        '#vreBtns button{font:500 15px system-ui,sans-serif;color:#e9eef5;background:rgba(233,238,245,.14);border:0;border-radius:10px;padding:8px 14px}' +
+        '#vreTurn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;background:rgba(7,11,20,.92);color:#e9eef5;font:1.1rem system-ui,sans-serif;z-index:2}#vreVr [hidden]{display:none!important}#vreVid{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}';
+      document.head.appendChild(st);
+    }
+    const root = document.createElement('div'); root.id = 'vreVr'; root.hidden = true;
+    root.innerHTML = '<div id="vreView"></div><div id="vreMid"></div><div id="vreTurn" hidden>📱↻ Turn the phone sideways and put it in the viewer.</div><div id="vreBtns"><button id="vreRecenter">Recenter</button><button id="vreExit">Exit</button></div><video id="vreVid" playsinline muted></video>';
+    (o.mount || document.body).appendChild(root);
+    // the lens fitting reads its switch and size from the page; a page without them gets them, hidden, set from what was saved
+    ['lensOn', 'lensSize', 'lensSizeO'].forEach((id) => { if (!$(id)) { const e = document.createElement(id === 'lensSizeO' ? 'output' : 'input'); e.id = id; if (id === 'lensOn') { e.type = 'checkbox'; e.checked = true; } if (id === 'lensSize') { e.type = 'range'; e.min = 80; e.max = 125; e.value = 100; } e.hidden = true; root.appendChild(e); } });
+
+    const S = { on: false, ready: true, w: 1, h: 1, counting: false, count: 0, hands: false, why: '', stream: null };
+    const { renderer, perf, pace } = VRE.screen(() => S.on);
+    renderer.autoClear = false;
+    $('vreView').appendChild(renderer.domElement);
+    const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(78, 1, 0.05, 300);
+    scene.add(camera);
+    const stereo = new THREE.StereoCamera();
+    stereo.eyeSep = 0.064;
+    const { lens, lensRender } = VRE.lens({ renderer, scene, camera, stereo });
+    const sound = VRE.sound(camera);
+    const vid = $('vreVid'), info = {};
+    const hand = { seen: false, pinch: false, looks: 0, found: 0, t: 0 };
+    const pinch = VRE.pinch(), gate = VRE.lookGate({ max: 30, slowMax: 20 }), guard = VRE.handGuard();
+    let hands = null, cam = null, wake = null, last = 0;
+    const head = VRE.head({ camera, el: renderer.domElement, onTurn: layout, onTap: () => { if (S.on) pointer.press(); } });
+    const pointer = VRE.pointer({ camera, sound, allowDwell: o.dwell !== false, onRecenter: () => { head.recenter(); note('Straight ahead set', 1200); }, onPick: (t, hit) => o.onPick && o.onPick(t, hit, sh) });
+    // a line of words in front of you for a moment (the count before straight ahead is set, "straight ahead set")
+    const noteM = VRE.textPlane(1.1, 0.26, 880, 208);
+    noteM.position.set(0, -0.32, -1.45); noteM.renderOrder = 70; noteM.visible = false;
+    camera.add(noteM);
+    let noteUntil = 0;
+    function note(text, ms) { VRE.drawText(noteM, Array.isArray(text) ? text : [text]); noteM.visible = true; noteUntil = performance.now() + (ms || 1500); }
+    function layout() {
+      const f = head.fit($('vreView'), renderer);
+      S.w = f.w; S.h = f.h; S.ready = f.ready; S.turned = f.turned; S.rot = f.rot;
+      $('vreTurn').hidden = !(S.on && !S.ready);
+      $('vreMid').hidden = !STEREO || !S.ready;
+    }
+    addEventListener('resize', () => S.on && layout());
+    // one look for the hand: at most 30 a second, never with a repeated time, fewer when the view runs slow
+    function lookForHand(now) {
+      if (!hands || !hands.lm || vid.readyState < 2 || !gate(now, vid.currentTime, perf.ft > 22)) return;
+      let res = null;
+      try { res = hands.lm.detectForVideo(hands.roiSource(), now); hands.handSys.fails = 0; }
+      catch (e) { if (++hands.handSys.fails >= 20) hands.handSwap(e); return; }
+      hand.looks++;
+      const lm = res && res.landmarks && res.landmarks[0];
+      hands.roiAfter(lm);
+      if (!lm) { hand.seen = false; hand.pinch = pinch.feed(null); return; }
+      const how = guard.sighting(now, lm[8].x, lm[8].y, Math.hypot(lm[5].x - lm[17].x, lm[5].y - lm[17].y));
+      if (how === 'doubt') return; // a sighting that jumped: not believed, the hand is where it was
+      hand.found++; hand.seen = true; hand.t = now;
+      hand.pinch = pinch.feed((res.worldLandmarks && res.worldLandmarks[0]) || lm);
+    }
+    function frame(now) {
+      if (!S.on) return;
+      requestAnimationFrame(frame);
+      const gap = now - last; last = now;
+      pace(now, gap);
+      if (S.counting && now >= S.count) { S.counting = false; head.recenter(); noteM.visible = false; if (o.onReady) o.onReady(sh); }
+      head.apply();
+      if (S.hands) { lookForHand(now); if (hand.seen && now - hand.t > 500) { hand.seen = false; hand.pinch = pinch.feed(null); } }
+      if (S.counting) VRE.drawText(noteM, ['Put the phone in the viewer', 'Starting in ' + Math.max(1, Math.ceil((S.count - now) / 1000))]);
+      else { pointer.update(now, { pinch: hand.pinch, seen: hand.seen }); if (noteM.visible && now > noteUntil) noteM.visible = false; }
+      if (sound.listen) sound.listen();
+      if (o.onFrame) o.onFrame(now, Math.min(0.1, gap / 1000), sh);
+      const w = S.w, h = S.h;
+      renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.clear();
+      if (!STEREO) renderer.render(scene, camera);
+      else if (lens.on) lensRender(w, h);
+      else {
+        stereo.aspect = 0.5; stereo.update(camera); renderer.setScissorTest(true);
+        renderer.setScissor(0, 0, w / 2, h); renderer.setViewport(0, 0, w / 2, h); renderer.render(scene, stereo.cameraL);
+        renderer.setScissor(w / 2, 0, w / 2, h); renderer.setViewport(w / 2, 0, w / 2, h); renderer.render(scene, stereo.cameraR);
+      }
+    }
+    const say = (t) => { if (o.status) o.status.textContent = t || ''; };
+    const sh = {
+      renderer, scene, camera, stereo, lens, head, sound, pointer, vid, hand, info, perf, pace, S, STEREO, TOUCH, note, say, root,
+      get hands() { return hands; },
+      // Start. The sound is woken and the motion question asked at once, from the press itself; the camera comes after.
+      async start() {
+        if (S.on) return;
+        sound.wake(); sound.sndInit();
+        const answer = await head.ask();
+        S.motion = answer;
+        say(answer === 'refused' ? 'Motion was not allowed, so the view cannot follow your head. You can drag the picture to look around. To be asked again, reload the page.' : '');
+        S.hands = false; S.why = '';
+        const yes = (v) => (typeof v === 'function' ? !!v() : !!v), wantHands = yes(o.hands), wantCam = yes(o.camera); // asked at Start, so a tick box on the page counts
+        if (wantHands || wantCam) {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) S.why = 'This browser gives no camera here';
+          else {
+            cam = cam || VRE.camera({ vid, plainKey: o.plainKey || 'vrHomePlainCam', info, lens: o.camLens || (() => 'auto') });
+            try { S.stream = await cam.startCamera(); } catch (e) { S.why = 'The camera was not allowed or did not open'; }
+          }
+          if (S.stream && wantHands) {
+            hands = hands || VRE.hands({ vid, MP });
+            try { if (!hands.lm) await hands.loadHands(); S.hands = true; } catch (e) { S.why = 'The hand finder could not be loaded'; }
+          }
+          if (S.why && answer !== 'refused') say(S.why + '. Rest the ring on a thing for a second to pick it, or press the viewer\'s button.');
+        }
+        root.hidden = false;
+        // straight ahead is set as the count ends, with the phone already in the viewer, not when Start was pressed
+        S.counting = true; S.count = performance.now() + (o.countMs != null ? o.countMs : 3000) + 400;
+        S.on = true;
+        layout();
+        try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+        noteM.visible = true; head.recenter(); pinch.reset(); guard.reset(); gate.reset();
+        if (o.onStart) o.onStart(sh);
+        last = performance.now();
+        requestAnimationFrame(frame);
+      },
+      stop() {
+        if (!S.on) return;
+        S.on = false;
+        head.stop();
+        root.hidden = true;
+        if (S.stream) { S.stream.getTracks().forEach((t) => t.stop()); S.stream = null; vid.srcObject = null; }
+        try { if (wake) wake.release(); } catch (e) {}
+        wake = null;
+        if (o.onExit) o.onExit(sh);
+      },
+    };
+    $('vreRecenter').onclick = () => head.recenter();
+    $('vreExit').onclick = () => sh.stop();
+    return sh;
   };
 
   window.VRE = VRE;
