@@ -39,7 +39,7 @@ hand-in-the-room aiming, the thumb trigger, and each game's own rules.
 
 ## v2: the spatial home
 
-`v2/vr-engine.js` (2.2.0) adds look-and-pinch, floating windows, a home screen of icons and a see-through mode, at
+`v2/vr-engine.js` (2.3.0) adds look-and-pinch, floating windows, a home screen of icons and a see-through mode, at
 phone-in-a-Cardboard quality. **Open it: [home.html](https://tbirdpower3000.github.io/VR-Portal/home.html).**
 It is v1 (1.5.0) plus the parts below, so everything above is in it. The games stay on v1 until v2 has been tried on a
 phone. None of v2 has been tried on a phone yet: its checks run in a desktop browser with a made-up camera and hand.
@@ -57,6 +57,8 @@ phone. None of v2 has been tried on a phone yet: its checks run in a desktop bro
 **2.1.0 (28 Nov 2026), from the first try on the phone.** The thin line between the two eyes now turns with the view: with rotation lock on it ran across both eyes, where it was no help in lining the phone up with the lenses. The home screen's round icons became tiles (a sign, a name, a line saying what it is), and a game's tile now opens a card with **Open** and **Not now**; before, picking an icon left for the game's page at once. A web page cannot be drawn inside the 3D view (a browser will not paint one page into another's picture), so opening a game still means going to its page; the game shows a link back.
 
 **2.2.0 (28 Nov 2026): words that can be read.** Text in the viewer was hard to read. Words are now sized by angle like targets: text to be read is 1.75 degrees tall or more (46 pixels on a window), a name or a button's word 1.5 or more. Windows have a darker backing so white words stand clear of the room behind; tiles carry only a sign and a name, in large letters, and the line about an app moved to its card; pictures of words are kept sharp at a slant (anisotropic filtering). `wins.text()` wraps words to a window at the readable size. Skeet VR (v0.22) and Fruit Slicer VR (v0.17), opened from a card, now start in VR at once, with one press of the viewer's button only if the phone wants to be asked about motion again.
+
+**2.3.0 and v1 1.6.0 (28 Nov 2026): games run inside the home screen.** Going into a game used to be a change of page: the view dropped out, and the phone could ask again about motion and the camera. Now a game of this site that says it can (`"inside": true` in `apps.json`) is run in a frame over the whole screen, in the same page. The home screen leaves it one note, `VRE_HOST`: its open camera, its sound, and two calls, "I am running" and "back". The game finds the note as `VRE.host` (new in engine 1.6.0, so the games did not have to move to v2): it takes the camera as it is and never asks for it, uses the home's sound, which is already awake, and is passed the motion sensors. The home keeps drawing, with "Opening…", until the game says it is running, then goes quiet; the game's Exit brings it back. One level only: a hosted page does not host another. Skeet VR v0.23 and Fruit Slicer VR v0.18 do this. Opened on their own pages they are unchanged.
 
 **Adding an app** is a line in `apps.json`: `{ "name", "icon", "kind": "page", "url" }` for a game or page, or
 `"kind": "window", "app"` for a window the home page provides.
@@ -100,6 +102,7 @@ the motion sensors and the lenses are not there.
 
 ## Versions
 
+- **1.6.0** (28 Nov 2026): `VRE.host`: a game can run inside the VR Portal home screen. Where the home has left its note, `VRE.camera` takes the home's open camera and does not ask for one, and `VRE.sound` uses the home's sound. On a game's own page nothing changes. A small, listed addition to v1, so the games need not move to v2 for it.
 - **1.5.0** (27 Nov 2026): Steady, continuous hand control, proved in the atlas and copied unchanged: `VRE.steady` (spike removal plus One Euro), `VRE.glide` (smooth, never-overshooting movement toward a target, for cursors and for anything the hand orders about) and `VRE.handGuard` (refuses a sighting that jumps or changes size too much, and a pinch seen only once). The idea: the hand tells the software what to do; it does not hold what it moves.
 - **1.4.0** (27 Nov 2026): Two pieces proved in the atlas. `VRE.lookGate()` says when to look for the hand: never with a repeated time (MediaPipe refuses every picture after one), at most 60 times a second, and 30 while the view is running slow, so hand finding no longer takes the time the picture needs. `VRE.fileStore(name)` keeps large data files in the browser's Cache Storage after the first download, so they reopen at once, offline, and need not be held in memory.
 - **1.3.0** (26 Nov 2026): `VRE.recorder()`, which keeps what the hand finder saw during play (the hand's 21 points, where the head pointed, named game moments; no picture) so tracking changes can be tried against a real hand. `tests/hand-report.cjs FILE` prints what a recording says: looks a second, how often the hand was lost, how much a still hand shakes, jumps, and the range of the thumb reading.

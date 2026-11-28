@@ -3,29 +3,31 @@
   "parent": "tbirdpower3000",
   "children": [
     "v1/vr-engine.js",
-    "v2/vr-engine.js (2.2.0: the spatial home)",
+    "v2/vr-engine.js (2.3.0: the spatial home)",
     "home.html",
     "apps.json",
     "examples/v2-head.html",
     "examples/v2-pointer.html",
     "examples/v2-windows.html",
     "tests/engine-v2.test.cjs",
+    "tests/fixtures/hosted.html",
     "examples/demo.html",
     "tests/engine.test.cjs"
   ],
-  "version": "1.5.0",
+  "version": "1.6.0",
   "uses": {
     "three": "r128",
     "mediapipe-tasks-vision": "0.10.14"
   },
   "usedBy": [
-    "Skeet-Game (from v0.14)",
-    "VR-FruitSlicer (from v0.13)"
+    "Skeet-Game (from v0.14; runs inside the home from v0.23)",
+    "VR-FruitSlicer (from v0.13; runs inside the home from v0.18)"
   ],
   "pattern": {
     "group": "mirror, order 2: the two eyes (VRE.mirror)",
     "recursion": "picture split into overlapping half-size parts (VRE.subdivide), depth 1 in use, any depth available",
     "v2": "one ring, seen by both eyes through the mirror rule; every pickable thing is a flat patch with a size in degrees (3 at least); windows and icons sit on one ball of radius 1.5 m round the head",
+    "nesting": "a page inside a page: the home screen (a cell) runs a game (a cell) in a frame and lends it its camera, sound and motion through one note, VRE_HOST; the game finds it as VRE.host. The same rule one level down, depth 1 only: a hosted page does not host",
     "depthLimit": "depth 1: nine parts; each extra level quadruples the looks needed to scan the picture"
   }
 }

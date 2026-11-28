@@ -32,7 +32,14 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '2.2.0' };
+  const VRE = { version: '2.3.0' };
+
+  // ---------- running inside the VR Portal home ----------
+  // The home screen can run a game inside itself, in a frame that fills the screen, so that going into a game is not a
+  // change of page: nothing is asked again and the view never drops out. The home page leaves a note for the game
+  // (window.VRE_HOST on the page that holds the frame): its open camera, its sound, a way to say "I am running" and a
+  // way back. A game finds it here. On its own page there is no host and everything works as it always did.
+  Object.defineProperty(VRE, 'host', { get() { try { return window.parent !== window && window.parent.VRE_HOST ? window.parent.VRE_HOST : null; } catch (e) { return null; } } });
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -356,6 +363,17 @@
       } catch (e) {}
     }
     async function startCamera() {
+      // inside the home screen the camera is already open there, and is handed over as it is: nothing is asked for
+      // again, and the picture does not stop and start
+      const host = VRE.host;
+      if (host && host.stream && host.stream.active) {
+        vid.srcObject = host.stream;
+        const pl = vid.play();
+        if (pl && pl.catch) pl.catch(() => {});
+        Object.assign(info, host.info || {});
+        for (let i = 0; i < 60 && vid.readyState < 2; i++) await new Promise((r) => setTimeout(r, 50));
+        return host.stream;
+      }
       let st = await openCam({ facingMode: { ideal: 'environment' } });
       let track = st.getVideoTracks()[0], switched = false;
       // The widest camera is tried unless it has failed to give a picture twice running on this phone. One failure is
@@ -823,7 +841,7 @@
       if (L.forwardX) { L.forwardX.value = lf.x; L.forwardY.value = lf.y; L.forwardZ.value = lf.z; L.upX.value = lu.x; L.upY.value = lu.y; L.upZ.value = lu.z; }
       else if (L.setOrientation) L.setOrientation(lf.x, lf.y, lf.z, lu.x, lu.y, lu.z);
     }
-    return { snd, sndInit, panOf, tone, hiss, listen, wake() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} }, get ac() { return ac; } };
+    return { snd, sndInit, panOf, tone, hiss, listen, wake() { try { ac = ac || (VRE.host && VRE.host.audio) || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} } /* inside the home screen its sound is used: it is already awake, where a new one would stay silent until a press */, get ac() { return ac; } };
   };
 
   // =====================================================================================================================
@@ -1175,7 +1193,7 @@
         : e.kind === 'window' && (typeof e.app !== 'string' || !e.app) ? 'a window needs an app name'
         : '';
       if (why) { skipped.push({ index: i, name: e && e.name, why }); try { console.warn('apps.json: entry ' + i + ' left out (' + why + ')'); } catch (x) {} return; }
-      apps.push({ about: typeof e.about === 'string' ? e.about.trim().slice(0, 90) : '', name: e.name.trim().slice(0, 24), icon: typeof e.icon === 'string' && e.icon ? [...e.icon].slice(0, 2).join('') : e.name.trim()[0].toUpperCase(), kind: e.kind, url: e.url, app: e.app, color: /^#[0-9a-f]{6}$/i.test(e.color || '') ? e.color : '#35507a' });
+      apps.push({ inside: e.inside === true, about: typeof e.about === 'string' ? e.about.trim().slice(0, 90) : '', name: e.name.trim().slice(0, 24), icon: typeof e.icon === 'string' && e.icon ? [...e.icon].slice(0, 2).join('') : e.name.trim()[0].toUpperCase(), kind: e.kind, url: e.url, app: e.app, color: /^#[0-9a-f]{6}$/i.test(e.color || '') ? e.color : '#35507a' });
     });
     return { apps, skipped };
   };
@@ -1400,6 +1418,7 @@
     function frame(now) {
       if (!S.on) return;
       requestAnimationFrame(frame);
+      if (S.paused) { last = now; return; } // a game is running in front: nothing is drawn or looked for here meanwhile
       const gap = now - last; last = now;
       pace(now, gap);
       if (S.counting && now >= S.count) { S.counting = false; head.recenter(); noteM.visible = false; if (o.onReady) o.onReady(sh); }
@@ -1455,8 +1474,43 @@
         last = performance.now();
         requestAnimationFrame(frame);
       },
+      // Runs a game inside this page, in a frame over the whole screen (only a page of this same site can be: another
+      // site's page is opened the ordinary way). The camera, the sound and the motion sensors stay with this page and
+      // are lent to the game, so nothing is asked again. This page goes quiet when the game says it is running, and
+      // wakes when the game's Exit is pressed.
+      canHost(url) { try { return new URL(url, location.href).origin === location.origin; } catch (e) { return false; } },
+      play(url, opt) {
+        if (S.game) return S.game;
+        if (VRE.host) return null; // one level only: a page that is itself running inside a home screen does not run another inside itself
+        const fr = document.createElement('iframe');
+        fr.allow = 'camera; microphone; gyroscope; accelerometer; magnetometer; xr-spatial-tracking; autoplay; fullscreen; screen-wake-lock';
+        fr.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;z-index:60;background:#000;opacity:0;pointer-events:none';
+        const G = (S.game = { frame: fr, url, shown: false, t0: performance.now() });
+        const show = () => { if (G.shown || S.game !== G) return; G.shown = true; fr.style.opacity = '1'; fr.style.pointerEvents = 'auto'; S.paused = true; if (opt && opt.onShown) opt.onShown(); };
+        const pass = (e) => { // the motion sensors, passed on: a frame is not always given them itself
+          try { const w = fr.contentWindow; if (w && w.DeviceOrientationEvent && e.alpha != null) w.dispatchEvent(new w.DeviceOrientationEvent('deviceorientation', { alpha: e.alpha, beta: e.beta, gamma: e.gamma, absolute: e.absolute })); } catch (x) {}
+        };
+        window.addEventListener('deviceorientation', pass);
+        window.VRE_HOST = {
+          stream: S.stream, audio: sound.ac, info,
+          ready: show,
+          back() {
+            if (S.game !== G) return;
+            window.removeEventListener('deviceorientation', pass);
+            S.game = null; window.VRE_HOST = null;
+            fr.remove();
+            S.paused = false; pinch.reset(); guard.reset(); gate.reset(); head.recenter();
+            if (opt && opt.onBack) opt.onBack();
+          },
+        };
+        G.timer = setTimeout(show, 15000); // a game that never says it is running is shown anyway
+        fr.src = url;
+        root.appendChild(fr);
+        return G;
+      },
       stop() {
         if (!S.on) return;
+        if (S.game && window.VRE_HOST) window.VRE_HOST.back();
         S.on = false;
         head.stop();
         root.hidden = true;

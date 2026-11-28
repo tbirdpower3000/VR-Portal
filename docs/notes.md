@@ -103,3 +103,15 @@ Still to learn from the phone: whether the room is the right way up through the 
 Said from the phone: the text is hard to read. Worked out why with numbers. A Cardboard on this phone shows about 16 pixels to a degree at the middle of the view. Window text was 36 canvas pixels on a metre-wide window at 1.5 m: 1.4 degrees, about 22 screen pixels tall, then blurred a little by the lens fitting. The line of description on a tile was 0.7 degrees: not readable by anyone. Rule adopted, beside the 3 degree rule for targets: **1.75 degrees for text to be read, 1.5 for a name or a button**. Also: darker window backing (0.92), full-strength white, weight 500, anisotropic filtering on pictures of words. Not yet known: whether 1.75 degrees is enough for him; if not, the one figure to raise is `px` in `wins.text` (46).
 
 Also asked: the games should start in VR when opened from home, with permissions "passed over". Permissions cannot be passed between pages; the browser keeps what it keeps per site, and all of these pages are one site. So a game opened with `?from=home` listens for 0.6 s: if motion is already flowing, or the browser never asks, it starts at once; otherwise the whole screen is one button ("Press the button to start"), because an iPhone only asks about motion after a press. Sound also needs a press on a new page; where the game starts by itself it stays silent until the first press. The atlas does not do this yet.
+
+## 28 Nov 2026: one page for everything (engine 2.3.0, v1 1.6.0)
+
+From the phone: the room is the right way up in see-through with rotation lock on (so the quarter turn of the camera picture is right, in the home and so in Skeet's "see my room" too). And: opening Fruit Slicer from its card worked, but went through ordinary web pages on the way, which broke the feeling of being somewhere.
+
+What was built: the game runs in a frame over the whole screen, inside the home page. Measured in the desktop rig with the three repos served as one site: the game is running 0.23 s after "Open" is picked, the game asked for the camera 0 times (the home asked once, at its own Start), the stream is the same object in both, and after Exit the home is drawing again with the camera still live.
+
+Why a frame and not a rewrite of the games as engine apps: the games are 700 and 1050 lines with their own aim code; a rewrite would be weeks and would risk what works. The frame needed about 40 lines in the engine and 6 in each game.
+
+The fractal-symmetry bot's rules, applied: this is the cell rule one level down (a page inside a page, lending through one note), so it gets an explicit depth limit, 1, and a line in `cell.json`. The note is one small object, not a web of calls, so a third game needs no new code: `"inside": true` and the two calls.
+
+Unknown until tried on the phone: whether iPhone Safari lets a frame use a camera stream opened by its parent (same site; it should), whether it delivers motion to the frame by itself (the home passes it on in any case), whether two drawing surfaces and two hand finders at once fit in memory (the home's go quiet but are not let go), and whether sound comes through.

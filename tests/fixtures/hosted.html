@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- A stand-in for a game, for tests/engine-v2.test.cjs: a page on engine v1 that is run inside the home screen.
+     It opens the camera and wakes the sound the way a game does, says it is running, and has an Exit. -->
+<meta charset="utf-8" />
+<title>stand-in game</title>
+<body style="margin:0;background:#123;color:#fff;font:20px system-ui">
+<video id="vid" playsinline muted style="width:2px;height:2px"></video>
+<button id="leave" style="position:fixed;left:10px;top:10px">Exit</button>
+<p id="say">starting</p>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../../v1/vr-engine.js"></script>
+<script>
+(async function () {
+  const info = {}, T = (window.__game = { hosted: !!VRE.host, info, orient: 0, ready: false });
+  addEventListener('deviceorientation', (e) => { if (e.alpha != null) T.orient++; });
+  const cam = VRE.camera({ vid: document.getElementById('vid'), plainKey: 'vrTestPlain', info });
+  const sound = VRE.sound(new THREE.PerspectiveCamera());
+  sound.wake();
+  T.audioIsHosts = !!(VRE.host && sound.ac === VRE.host.audio);
+  try { T.stream = await cam.startCamera(); T.streamIsHosts = !!(VRE.host && T.stream === VRE.host.stream); } catch (e) { T.err = String(e && e.message); }
+  T.ready = true;
+  document.getElementById('say').textContent = 'running';
+  if (VRE.host) VRE.host.ready();
+  document.getElementById('leave').onclick = () => VRE.host && VRE.host.back();
+})();
+</script>
+</body>

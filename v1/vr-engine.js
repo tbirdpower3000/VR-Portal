@@ -24,7 +24,14 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '1.5.0' };
+  const VRE = { version: '1.6.0' };
+
+  // ---------- running inside the VR Portal home ----------
+  // The home screen can run a game inside itself, in a frame that fills the screen, so that going into a game is not a
+  // change of page: nothing is asked again and the view never drops out. The home page leaves a note for the game
+  // (window.VRE_HOST on the page that holds the frame): its open camera, its sound, a way to say "I am running" and a
+  // way back. A game finds it here. On its own page there is no host and everything works as it always did.
+  Object.defineProperty(VRE, 'host', { get() { try { return window.parent !== window && window.parent.VRE_HOST ? window.parent.VRE_HOST : null; } catch (e) { return null; } } });
 
   // ---------- the two rules of repetition ----------
   // Around: a headset is the same thing twice, mirrored. Work for the left (-1) and the right (+1) is written once.
@@ -347,6 +354,17 @@
       } catch (e) {}
     }
     async function startCamera() {
+      // inside the home screen the camera is already open there, and is handed over as it is: nothing is asked for
+      // again, and the picture does not stop and start
+      const host = VRE.host;
+      if (host && host.stream && host.stream.active) {
+        vid.srcObject = host.stream;
+        const pl = vid.play();
+        if (pl && pl.catch) pl.catch(() => {});
+        Object.assign(info, host.info || {});
+        for (let i = 0; i < 60 && vid.readyState < 2; i++) await new Promise((r) => setTimeout(r, 50));
+        return host.stream;
+      }
       let st = await openCam({ facingMode: { ideal: 'environment' } });
       let track = st.getVideoTracks()[0], switched = false;
       // The widest camera is tried unless it has failed to give a picture twice running on this phone. One failure is
@@ -686,7 +704,7 @@
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       src.connect(flt); flt.connect(g); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.02);
     }
-    return { snd, sndInit, panOf, tone, hiss, wake() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} }, get ac() { return ac; } };
+    return { snd, sndInit, panOf, tone, hiss, wake() { try { ac = ac || (VRE.host && VRE.host.audio) || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} } /* inside the home screen its sound is used: it is already awake, where a new one would stay silent until a press */, get ac() { return ac; } };
   };
 
   window.VRE = VRE;

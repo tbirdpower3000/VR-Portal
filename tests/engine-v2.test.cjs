@@ -100,7 +100,7 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
     page.errors = []; page.warns = []; page.on('pageerror', (e) => page.errors.push(e.message)); page.on('console', (m) => m.type() === 'warning' && page.warns.push(m.text()));
     await page.route('**/three.min.js', (r) => r.fulfill({ path: threeJs(), contentType: 'text/javascript' }));
     await page.route('**/vision_bundle.mjs*', (r) => r.fulfill({ path: path.join(__dirname, 'fake-hands-v2.mjs'), contentType: 'text/javascript' }));
-    await page.addInitScript(() => { try { delete DeviceOrientationEvent.requestPermission; } catch (e) {} window.__fake = { on: true, pinch: false }; });
+    await page.addInitScript(() => { try { delete DeviceOrientationEvent.requestPermission; } catch (e) {} window.__fake = { on: true, pinch: false }; window.__gum = 0; if (navigator.mediaDevices) { const g = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = (c) => { window.__gum++; return g(c); }; } });
     if (init) await page.addInitScript(init);
     await page.goto(base + file, { waitUntil: 'load' });
     return page;
@@ -227,6 +227,7 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
   pg = await openAt('/home.html?stereo=1');
   const asked = []; pg.on('request', (q) => { if (/Skeet-Game/.test(q.url())) asked.push(q.url()); });
   await pg.route('**/Skeet-Game/**', (r) => r.fulfill({ body: '<title>stand-in for the game</title>', contentType: 'text/html' }));
+  await pg.route('**/v1/vr-engine.js', (r) => r.fulfill({ path: path.join(ROOT, 'v1/vr-engine.js'), contentType: 'text/javascript' }));
   await start(pg, '__home');
   const H = () => pg.evaluate(() => { const K = window.__home; return { icons: K.home.icons.length, names: K.home.icons.map((i) => i.app.name).join(), wins: K.wins.list.map((w) => w.id).join(), v: K.pass.value, live: K.pass.state.live, plane: K.pass.plane.visible, sky: K.pass.sky.visible, skyOp: K.pass.sky.material.opacity, bright: K.pass.plane.material.color.r, across: K.home.icons.map((i) => +K.sh.pointer.degOf(i.target).toFixed(1)), gap: Math.abs(K.home.icons[0].yaw - K.home.icons[1].yaw) * 57.29578 }; });
   await pg.waitForFunction(() => window.__home.pass.state.live, null, { timeout: 8000 });
@@ -266,7 +267,26 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
   await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.name === 'Skeet VR').mesh"); await pinch(pg, true); await pinch(pg, false);
   await lookAt(pg, '__home', "K.wins.get('card').panel", (60 + 210) / 1000 - 0.5, 0.28 - (84 + 330 + 55) / 1000); await pinch(pg, true); await pinch(pg, false);
   await pg.waitForTimeout(1200);
-  ok('"Open" goes to the game\'s page, saying it came from home', asked.some((u) => /Skeet-Game\/\?from=home$/.test(u)), asked.join(' '));
+  ok('"Open" asks for the game\'s page, saying it came from home', asked.some((u) => /Skeet-Game\/\?from=home$/.test(u)), asked.join(' '));
+  // ---- a game run inside the home screen: one page, one camera, nothing asked twice ----
+  {
+    await pg.evaluate(() => { if (window.VRE_HOST) window.VRE_HOST.back(); }); // (the stand-in opened by the check above is sent away first)
+    const before = await pg.evaluate(() => ({ gum: window.__gum, tracks: window.__home.sh.S.stream.getVideoTracks()[0].readyState }));
+    await pg.evaluate(() => { window.__shown = 0; window.__back = 0; window.__home.sh.play('tests/fixtures/hosted.html?from=home', { onShown() { window.__shown++; }, onBack() { window.__back++; } }); });
+    const early = await pg.evaluate(() => { const S = window.__home.sh.S; return { paused: !!S.paused, opacity: S.game.frame.style.opacity }; });
+    await pg.waitForFunction(() => { const g = window.__home.sh.S.game; return g && g.shown; }, null, { timeout: 15000 });
+    await pg.evaluate(() => { for (let i = 0; i < 5; i++) window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 10 + i, beta: 90, gamma: 0 })); });
+    const during = await pg.evaluate(() => { const S = window.__home.sh.S, w = S.game.frame.contentWindow, T = w.__game; return { hosted: T.hosted, gumInGame: w.__gum, gumHome: window.__gum, sameStream: T.streamIsHosts, sameAudio: T.audioIsHosts, orient: T.orient, paused: S.paused, opacity: S.game.frame.style.opacity, shown: window.__shown, err: T.err || '', cam: T.info.cam === window.__home.sh.info.cam }; });
+    ok('a game opened from home runs inside the same page; the home keeps drawing until the game says it is running', early.paused === false && early.opacity === '0' && during.hosted && during.paused === true && during.opacity === '1' && during.shown === 1, JSON.stringify({ early, during }));
+    ok('the camera is lent, not opened again: the game never asks for it, and gets the very same picture', during.gumInGame === 0 && during.gumHome === before.gum && during.sameStream && during.cam && !during.err, JSON.stringify(during));
+    ok('the sound is the home\'s own (already awake), and the motion sensors are passed on to the game', during.sameAudio && during.orient >= 5, during.sameAudio + ' ' + during.orient);
+    await pg.frameLocator('iframe').locator('#leave').click();
+    await pg.waitForTimeout(300);
+    const after = await pg.evaluate(() => { const S = window.__home.sh.S; return { game: !!S.game, frames: document.querySelectorAll('iframe').length, paused: !!S.paused, track: S.stream.getVideoTracks()[0].readyState, back: window.__back, host: !!window.VRE_HOST, tiles: window.__home.home.shown }; });
+    ok('the game\'s Exit comes back to the home screen: the frame is gone, the home is drawing again, the camera is still open', !after.game && after.frames === 0 && !after.paused && after.track === 'live' && after.back === 1 && !after.host, JSON.stringify(after));
+    const far = await pg.evaluate(() => [window.__home.sh.canHost('../Skeet-Game/'), window.__home.sh.canHost('https://example.org/game/')]);
+    ok('only a page of this same site is run inside; any other is opened the ordinary way', far[0] === true && far[1] === false, far.join());
+  }
   await pg.context().close();
 
   // ---- rotation lock: an upright page with the phone on its side. The line between the eyes must turn with the view ----

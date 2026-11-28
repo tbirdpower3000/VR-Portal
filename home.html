@@ -77,15 +77,25 @@
         x.fillStyle = app.color; x.beginPath(); x.arc(110, 110, 72, 0, 7); x.fill();
         x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = (/[\u0000-\u00ff]/.test(app.icon[0]) ? '700 84px ' : '84px ') + 'system-ui, sans-serif'; x.fillText(app.icon, 110, 116);
         const y = wins.text(x, W, [app.about || 'Opens as its own page.'], { x: 220, w: W - 250, y: 24 });
-        wins.text(x, W, ['Starts in VR as its own page. It links back here.'], { x: 220, w: W - 250, y: y + 6, px: 34, color: '#b8c6da' });
+        wins.text(x, W, [app.inside ? 'Runs right here. Its Exit comes back.' : 'Opens as its own page, with a link back.'], { x: 220, w: W - 250, y: y + 6, px: 34, color: '#b8c6da' });
       },
       spots: [
-        { id: 'open', x: 60, y: 330, w: 420, h: 110, label: 'Open', select() { sh.note('Opening ' + app.name, 900); setTimeout(() => location.assign(url), 350); } },
+        { id: 'open', x: 60, y: 330, w: 420, h: 110, label: 'Open', select() { openPage(app, url); } },
         { id: 'no', x: 520, y: 330, w: 420, h: 110, label: 'Not now', select(win) { setTimeout(() => { win.close(); tidy(); }, 0); } },
       ] });
     w.spec.onClose = () => setTimeout(tidy, 0);
     tidy();
     return w;
+  }
+  // Opening a page. A game that can run inside this page (app.inside in apps.json, on this same site) is run here, in
+  // a frame over the whole screen: the camera, sound and motion stay open and are lent to it, so nothing is asked again
+  // and the view never drops out. This page keeps drawing, with a line of words, until the game says it is running;
+  // the game's Exit comes back here. Any other page is opened the ordinary way and offers a link back.
+  function openPage(app, url) {
+    if (app.inside && sh.canHost(url)) {
+      sh.note(['Opening ' + app.name, 'One moment'], 20000);
+      sh.play(url, { onShown() { const c = wins.get('card'); if (c) c.close(); }, onBack() { wins.closeAll(); tidy(); sh.note('Back home', 1200); } });
+    } else { sh.note('Opening ' + app.name, 900); setTimeout(() => location.assign(url), 350); }
   }
   let tidy = () => {};
   async function build() {

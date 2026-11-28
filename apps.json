@@ -1,27 +1,29 @@
 {
-  "note": "The icons on the VR Portal home screen. Each entry: name, icon (an emoji or one or two letters), kind (\"page\" opens a web page, \"window\" opens a window the home page provides, named by app), url or app, an optional color (#rrggbb), and \"about\": a short line shown on its card (about 60 letters at most, to stay readable in the viewer). An entry that is not right is left out with a warning; the rest still load.",
+  "note": "The icons on the VR Portal home screen. Each entry: name, icon (an emoji or one or two letters), kind (\"page\" opens a web page, \"window\" opens a window the home page provides, named by app), url (a path on this site, such as \"../Skeet-Game/\", runs inside the home screen if the page supports it; a full https address opens as its own page) or app, an optional color (#rrggbb), and \"about\": a short line shown on its card (about 60 letters at most, to stay readable in the viewer). An entry that is not right is left out with a warning; the rest still load. \"inside\": true says the page can run inside the home screen (it uses engine 1.6.0 or later and starts by itself there).",
   "apps": [
     {
       "name": "Skeet VR",
       "icon": "🎯",
       "kind": "page",
-      "url": "https://tbirdpower3000.github.io/Skeet-Game/",
+      "url": "../Skeet-Game/",
       "color": "#b5651d",
-      "about": "Clay shooting with a finger gun. Drop your thumb to fire."
+      "about": "Clay shooting with a finger gun. Drop your thumb to fire.",
+      "inside": true
     },
     {
       "name": "Fruit Slicer VR",
       "icon": "🍉",
       "kind": "page",
-      "url": "https://tbirdpower3000.github.io/VR-FruitSlicer/",
+      "url": "../VR-FruitSlicer/",
       "color": "#2f7d4f",
-      "about": "Cut flying fruit with your finger or your gaze."
+      "about": "Cut flying fruit with your finger or your gaze.",
+      "inside": true
     },
     {
       "name": "Planetary Atlas",
       "icon": "🪐",
       "kind": "page",
-      "url": "https://tbirdpower3000.github.io/planetary-atlas-v15mk2/",
+      "url": "../planetary-atlas-v15mk2/",
       "color": "#3b4f8a",
       "about": "The Solar System and its worlds, in VR."
     },
@@ -29,7 +31,7 @@
       "name": "Hand training",
       "icon": "✋",
       "kind": "page",
-      "url": "https://tbirdpower3000.github.io/hand-control-training/",
+      "url": "../hand-control-training/",
       "color": "#6a4c93",
       "about": "Practice and tune hand control."
     },
