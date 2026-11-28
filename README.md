@@ -39,7 +39,7 @@ hand-in-the-room aiming, the thumb trigger, and each game's own rules.
 
 ## v2: the spatial home
 
-`v2/vr-engine.js` (2.3.0) adds look-and-pinch, floating windows, a home screen of icons and a see-through mode, at
+`v2/vr-engine.js` (2.4.0) adds look-and-pinch, floating windows, a home screen of icons and a see-through mode, at
 phone-in-a-Cardboard quality. **Open it: [home.html](https://tbirdpower3000.github.io/VR-Portal/home.html).**
 It is v1 (1.5.0) plus the parts below, so everything above is in it. The games stay on v1 until v2 has been tried on a
 phone. None of v2 has been tried on a phone yet: its checks run in a desktop browser with a made-up camera and hand.
@@ -60,13 +60,15 @@ phone. None of v2 has been tried on a phone yet: its checks run in a desktop bro
 
 **2.3.0 and v1 1.6.0 (28 Nov 2026): games run inside the home screen.** Going into a game used to be a change of page: the view dropped out, and the phone could ask again about motion and the camera. Now a game of this site that says it can (`"inside": true` in `apps.json`) is run in a frame over the whole screen, in the same page. The home screen leaves it one note, `VRE_HOST`: its open camera, its sound, and two calls, "I am running" and "back". The game finds the note as `VRE.host` (new in engine 1.6.0, so the games did not have to move to v2): it takes the camera as it is and never asks for it, uses the home's sound, which is already awake, and is passed the motion sensors. The home keeps drawing, with "Opening…", until the game says it is running, then goes quiet; the game's Exit brings it back. One level only: a hosted page does not host another. Skeet VR v0.23 and Fruit Slicer VR v0.18 do this. Opened on their own pages they are unchanged.
 
+**2.4.0 (28 Nov 2026): the words, again, with the sums done.** After 2.2.0 the text was "still unreadable" on the phone. The cause was not only size. The engine drew at 2 pixels for each point of the screen at most, and dropped towards 1 whenever pictures ran late; through a Cardboard that is 8 pixels to a degree at best and 4 at worst, so 1.75 degree words were 7 to 14 pixels tall. The home screen is now drawn at the screen's full 3 pixels a point (12 to a degree) and never under 2.5; words are 2.3 degrees tall (60 pixels on a window, about 28 on the screen); tiles are larger, three to a row, with names over 2 degrees tall. The Status window shows the sharpness in use. The games still draw at 2 and under, as before.
+
 **Adding an app** is a line in `apps.json`: `{ "name", "icon", "kind": "page", "url" }` for a game or page, or
 `"kind": "window", "app"` for a window the home page provides.
 
 **What v2 cannot do, by the nature of a phone in a browser.** No eye tracking: the middle of your view stands in for
 where you look. No sense of where you stand: windows stay put as your head turns but cannot stay behind as you walk.
 The room in see-through is one flat picture in both eyes, not 3D, and is shown a little larger than life so that it
-fills the view (the Status window says by how much). Sizes are set by angle: nothing to pick is under 3 degrees across.
+fills the view (the Status window says by how much). Sizes are set by angle: nothing to pick is under 3 degrees across, and no word to be read under 2.3 degrees tall.
 
 **Choices made where the brief asked** (say if you want them changed): the home screen starts with Skeet VR, Fruit
 Slicer VR, the Planetary Atlas and the hand-control training page; windows use the dark Atlas look; resting the ring

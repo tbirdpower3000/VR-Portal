@@ -232,7 +232,7 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
   const H = () => pg.evaluate(() => { const K = window.__home; return { icons: K.home.icons.length, names: K.home.icons.map((i) => i.app.name).join(), wins: K.wins.list.map((w) => w.id).join(), v: K.pass.value, live: K.pass.state.live, plane: K.pass.plane.visible, sky: K.pass.sky.visible, skyOp: K.pass.sky.material.opacity, bright: K.pass.plane.material.color.r, across: K.home.icons.map((i) => +K.sh.pointer.degOf(i.target).toFixed(1)), gap: Math.abs(K.home.icons[0].yaw - K.home.icons[1].yaw) * 57.29578 }; });
   await pg.waitForFunction(() => window.__home.pass.state.live, null, { timeout: 8000 });
   let h0 = await H();
-  ok('home: the tiles come from apps.json, each well over 3 degrees across (8 by 11.6) and 12.6 degrees apart', h0.icons === 8 && h0.across.every((d) => d >= 7.9) && near(h0.gap, 12.6, 0.01), h0.names + ' ' + h0.across[0] + ' ' + h0.gap.toFixed(1));
+  ok('home: the tiles come from apps.json, each well over 3 degrees across (10.5 by 15), three to a row, 16.2 degrees apart', h0.icons === 8 && h0.across.every((d) => d >= 10.4) && near(h0.gap, 16.2, 0.01), h0.names + ' ' + h0.across[0] + ' ' + h0.gap.toFixed(1));
   ok('see-through starts as the room dimmed: the camera picture is shown darker, the sky is not', h0.live && h0.plane && !h0.sky && near(h0.v, 0.5, 1e-9) && h0.bright < 0.5 && h0.bright > 0.2, JSON.stringify({ v: h0.v, bright: +h0.bright.toFixed(2) }));
   await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.app === 'surroundings').mesh"); await pinch(pg, true); await pinch(pg, false);
   let h1 = await H();
@@ -245,7 +245,7 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
   let h3 = await H();
   ok('"My room" shows the camera picture at full brightness', near(h3.v, 0, 1e-9) && h3.plane && !h3.sky && near(h3.bright, 1, 1e-9), JSON.stringify({ v: h3.v, bright: h3.bright }));
   const paced = await pg.evaluate(() => { const sh = window.__home.sh, before = sh.perf.pr; let t = performance.now(); for (let i = 0; i < 400; i++) { t += 40; sh.pace(t, 40); } return [before, sh.perf.pr]; });
-  ok('with see-through on, slow pictures still lower the sharpness (the pacing still works)', paced[1] < paced[0] || paced[0] === 1, paced.join(' -> '));
+  ok('with see-through on, slow pictures still lower the sharpness, but never under the floor that keeps words readable', paced[1] <= paced[0] && paced[1] >= Math.min(2.5, paced[0]), paced.join(' -> '));
   await pg.screenshot({ path: path.join(OUT, 'v2-home-window.png') });
   await lookAt(pg, '__home', 'K.dock.icons[0].mesh'); await pinch(pg, true); await pinch(pg, false);
   const back = await pg.evaluate(() => [window.__home.wins.list.length, window.__home.home.shown, window.__home.dock.shown]);
@@ -254,7 +254,9 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
   const type = await pg.evaluate(() => { const K = window.__home, seen = []; const x = document.createElement('canvas').getContext('2d'); const real = x.constructor.prototype.fillText; x.constructor.prototype.fillText = function (s) { const m = /(\d+)px/.exec(this.font); if (m && String(s).trim().length > 2) seen.push(+m[1]); return real.apply(this, arguments); };
     const w = K.APPS.status(); w.redraw(); const a = K.APPS.about(); a.redraw(); x.constructor.prototype.fillText = real;
     const px = Math.min(...seen), deg = VRE.angle(px / 1000, 1.5); K.wins.closeAll(); return [px, +deg.toFixed(2), VRE.TEXT_DEG]; });
-  ok('words in a window are at least a degree and a half tall (46 pixels is 1.75 degrees at this distance)', type[0] >= 42 && type[1] >= 1.6, type.join(' '));
+  ok('words in a window are over two degrees tall (60 pixels is 2.3 degrees at this distance)', type[0] >= 54 && type[1] >= 2.0, type.join(' '));
+  const sharpness = await pg.evaluate(() => { const sh = window.__home.sh; return [sh.perf.min, sh.perf.max, window.devicePixelRatio]; });
+  ok('the home screen is drawn at the screen\'s full sharpness (up to 3) and never under 2.5, or the screen\'s own if that is less', sharpness[1] === Math.min(3, sharpness[2]) && sharpness[0] === Math.min(2.5, sharpness[1]), sharpness.join(' '));
   ok('home: no errors on the page', pg.errors.length === 0, pg.errors.join(' | '));
   await lookAt(pg, '__home', "K.home.icons.find((i) => i.app.name === 'Skeet VR').mesh"); await pinch(pg, true); await pinch(pg, false);
   await pg.waitForTimeout(500);
@@ -291,7 +293,7 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
 
   // ---- rotation lock: an upright page with the phone on its side. The line between the eyes must turn with the view ----
   {
-    const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true, permissions: ['camera'] });
+    const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true, permissions: ['camera'] }); // an iPhone 15 Pro's screen
     const pt = await ctx.newPage(); const perr = []; pt.on('pageerror', (e) => perr.push(e.message));
     await pt.route('**/three.min.js', (r) => r.fulfill({ path: threeJs(), contentType: 'text/javascript' }));
     await pt.route('**/vision_bundle.mjs*', (r) => r.fulfill({ path: path.join(__dirname, 'fake-hands-v2.mjs'), contentType: 'text/javascript' }));
@@ -304,6 +306,10 @@ const results = []; const ok = (name, pass, got) => { results.push({ name, pass:
     const box = await pt.evaluate(() => { const m = document.getElementById('vreMid').getBoundingClientRect(), v = document.getElementById('vreView').getBoundingClientRect(), S = window.__home.sh.S; return { turned: S.turned, rot: S.rot, mw: m.width, mh: m.height, my: m.top + m.height / 2, vy: v.top + v.height / 2, vw: v.width, vh: v.height }; });
     ok('rotation lock: the view is turned a quarter, and the line between the eyes turns with it (across the page, at its middle)', box.turned && Math.abs(box.rot) === 90 && box.mw > 300 && box.mh < 4 && near(box.my, 426, 2) && near(box.vw, 393, 1) && near(box.vh, 852, 1), JSON.stringify(box));
     fs.mkdirSync(OUT, { recursive: true }); await pt.waitForTimeout(3600); await pt.screenshot({ path: path.join(OUT, 'v2-home-turned.png') });
+    const sharp = await pt.evaluate(() => { const sh = window.__home.sh, L = sh.lens; return { pr: sh.perf.pr, eye: [L.ew, L.eh], perDeg: +(L.ew / (2 * Math.atan(1) * 57.29578) * 1).toFixed(1) }; });
+    // at the middle of the view: points of screen to the unit of tangent (237 on this phone) times the sharpness, per degree
+    const perDegree = 237 * sharp.pr * Math.PI / 180;
+    ok('on a phone screen of 3 pixels a point the home is drawn at 3 and never under 2.5 (this slow test machine drops it to the floor): 10 to 12 pixels to a degree, so 2.3 degree words are 24 to 28 pixels tall', sharp.pr >= 2.5 && sharp.pr <= 3 && sharp.eye[0] > 1100 && perDegree * 2.3 > 23, JSON.stringify(sharp) + ' ' + perDegree.toFixed(1));
     ok('rotation lock: no errors on the page', perr.length === 0, perr.join(' | '));
     await ctx.close();
   }

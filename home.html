@@ -48,22 +48,22 @@
   const setDial = (v) => { pass.set(v); VRE.store.set('vrHomeSurround', +v.toFixed(2)); if (sh.sound.ac && sh.sound.snd.on) sh.sound.tone('sine', 400 + v * 400, 420 + v * 400, 0.06, 0.1, 0); };
   const APPS = {
     surroundings: () => wins.open({ id: 'surroundings', title: 'Surroundings', w: 0.9, h: 0.5,
-      draw(x, W) { wins.text(x, W, [pass.state.live ? 'Your room, or a sky' : 'No camera: sky only']); },
+      draw(x, W) { if (!pass.state.live) wins.text(x, W, ['No camera: sky only'], { px: 50, y: 8 }); },
       spots: [
         { id: 'room', x: 40, y: 80, w: 250, h: 90, label: 'My room', select() { setDial(0); } },
         { id: 'dim', x: 320, y: 80, w: 250, h: 90, label: 'Dimmed', select() { setDial(0.5); } },
         { id: 'sky', x: 600, y: 80, w: 250, h: 90, label: 'Sky', select() { setDial(1); } },
         { id: 'dial', x: 40, y: 270, w: 810, h: 70, label: () => 'Blend ' + Math.round(pass.value * 100) + '%', value: () => pass.value, slide(f) { setDial(f); } },
       ] }),
-    status: () => wins.open({ id: 'status', title: 'Status', w: 1.1, h: 0.62, draw(x, W) {
+    status: () => wins.open({ id: 'status', title: 'Status', w: 1.25, h: 0.7, draw(x, W) {
       const hs = sh.hands && sh.hands.handSys;
-      wins.text(x, W, [Math.round(fps) + ' pictures a second',
+      wins.text(x, W, [Math.round(fps) + ' pictures a second, sharpness ' + sh.perf.pr.toFixed(2).replace(/0$/, ''),
         'Head: ' + (sh.head.motion ? 'motion sensors' : 'dragging'),
         'Hand: ' + (sh.S.hands ? (hs.on === 'GPU' ? 'graphics chip' : 'processor') + ', seen ' + (sh.hand.looks ? Math.round((100 * sh.hand.found) / sh.hand.looks) : 0) + '%' : 'off'),
-        'Camera: ' + (sh.info.cam ? (sh.info.camFps ? sh.info.camFps + ' a second, ' : '') + sh.info.cam.slice(0, 22) : 'none'),
-        'Room ' + (pass.state.live ? 'at ' + (pass.state.zoom || 1).toFixed(2) + ' times life size' : 'not shown') + ' · v' + VRE.version]);
+        'Camera: ' + (sh.info.cam ? (sh.info.camFps ? sh.info.camFps + ' a second' : 'on') : 'none'),
+        'Room: ' + (pass.state.live ? (pass.state.zoom || 1).toFixed(2) + ' times life size' : 'not shown')], { px: 56 });
     } }),
-    about: () => wins.open({ id: 'about', title: 'About', w: 1.1, h: 0.68, draw: (x, W) => wins.text(x, W, ['Your head aims. Your hand picks, held low.', 'Windows stay put as your head turns.', 'It cannot follow your eyes, or where you walk.', 'Built with Claude by tbirdpower3000 and contributors.'], { gap: 8 }) }),
+    about: () => wins.open({ id: 'about', title: 'About', w: 1.25, h: 0.86, draw: (x, W) => wins.text(x, W, ['Your head aims. Your hand picks, held low.', 'Windows stay put as your head turns.', 'It cannot follow your eyes, or where you walk.', 'Engine ' + VRE.version + '. Built with Claude by tbirdpower3000 and contributors.'], { gap: 8, px: 54 }) }),
     recenter: () => { sh.head.recenter(); sh.note('Straight ahead set', 1200); },
   };
   // A page (a game, the atlas) does not open the moment its tile is picked. A card opens first: what it is, where it
@@ -76,8 +76,7 @@
       draw(x, W) {
         x.fillStyle = app.color; x.beginPath(); x.arc(110, 110, 72, 0, 7); x.fill();
         x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = (/[\u0000-\u00ff]/.test(app.icon[0]) ? '700 84px ' : '84px ') + 'system-ui, sans-serif'; x.fillText(app.icon, 110, 116);
-        const y = wins.text(x, W, [app.about || 'Opens as its own page.'], { x: 220, w: W - 250, y: 24 });
-        wins.text(x, W, [app.inside ? 'Runs right here. Its Exit comes back.' : 'Opens as its own page, with a link back.'], { x: 220, w: W - 250, y: y + 6, px: 34, color: '#b8c6da' });
+        wins.text(x, W, [app.about || (app.inside ? 'Runs right here.' : 'Opens as its own page.')], { x: 220, w: W - 250, y: 16, px: 56 });
       },
       spots: [
         { id: 'open', x: 60, y: 330, w: 420, h: 110, label: 'Open', select() { openPage(app, url); } },

@@ -32,7 +32,7 @@
   if (!window.THREE) { console.error('vr-engine: three.js must be loaded first'); return; }
   const $ = (id) => document.getElementById(id);
   const D = Math.PI / 180;
-  const VRE = { version: '2.3.0' };
+  const VRE = { version: '2.4.0' };
 
   // ---------- running inside the VR Portal home ----------
   // The home screen can run a game inside itself, in a frame that fills the screen, so that going into a game is not a
@@ -86,8 +86,11 @@
 
   // ---------- the drawing surface ----------
   // playing(): whether a round is being played now, so the frame rate saved with a round is the round's own
-  VRE.screen = function (playing) {
-    const PR_MAX = Math.min(devicePixelRatio || 1, 2);
+  // sharp: { max, min } pixels drawn for each point of the screen. Games draw at 2 at most and may drop to 1 when
+  // pictures run late. A page of words cannot: through the lenses an iPhone at 2 shows only 8 pixels to a degree, at 1
+  // only 4, and nothing can be read. So the home screen asks for the screen's full 3 and never goes under 2.5.
+  VRE.screen = function (playing, sharp) {
+    const PR_MAX = Math.min(devicePixelRatio || 1, (sharp && sharp.max) || 2), PR_MIN = Math.min(PR_MAX, (sharp && sharp.min) || 1);
     const renderer = new THREE.WebGLRenderer({ antialias: (devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
     renderer.setPixelRatio(PR_MAX);
     VRE.aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy() || 1); // how well the graphics chip can keep a slanted picture sharp
@@ -98,10 +101,11 @@
       if (playing()) { perf.n++; perf.sum += gap; }
       if (now < perf.hold) return;
       let pr = perf.pr;
-      if (perf.ft > 21 && pr > 1) { pr = Math.max(1, pr - 0.25); perf.upAfter = now + 10000; }
+      if (perf.ft > 21 && pr > PR_MIN) { pr = Math.max(PR_MIN, pr - 0.25); perf.upAfter = now + 10000; }
       else if (perf.ft < 17.5 && pr < PR_MAX && now > perf.upAfter) pr = Math.min(PR_MAX, pr + 0.25);
       if (pr !== perf.pr) { perf.pr = pr; renderer.setPixelRatio(pr); perf.hold = now + 1500; perf.ft = 16.7; }
     }
+    perf.min = PR_MIN; perf.max = PR_MAX;
     return { renderer, perf, pace, PR_MAX };
   };
 
@@ -176,7 +180,7 @@
         eye.cam.matrixAutoUpdate = false;
       });
       // the off-screen picture: as sharp at its middle as the screen is there, held to a size a phone draws comfortably
-      const perTan = d * mm * pr, k = Math.min(1, 1500 / ((outer + inner) * perTan), 1500 / ((up + down) * perTan));
+      const perTan = d * mm * pr, most = VRE.eyeCap || 1500, k = Math.min(1, most / ((outer + inner) * perTan), most / ((up + down) * perTan)); // (the home screen raises the cap: words need every pixel)
       const ew = Math.max(64, Math.round((outer + inner) * perTan * k)), eh = Math.max(64, Math.round((up + down) * perTan * k));
       if (lens.rt) lens.rt.dispose();
       lens.rt = new THREE.WebGLRenderTarget(ew * 2, eh, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true });
@@ -857,11 +861,12 @@
   VRE.angle = (w, d) => (2 * Math.atan(w / (2 * d))) / D;   // degrees covered by a width w seen from d away
   VRE.sizeAt = (deg, d) => 2 * d * Math.tan((deg * D) / 2); // the width that covers deg degrees from d away
   VRE.MIN_TARGET_DEG = 3;
-  // Words follow the same rule. Through a Cardboard's lenses a phone shows about 16 pixels to a degree, so words under
-  // about a degree and a half tall cannot be read (found on the phone, 28 Nov: 36-pixel text on a window, 1.4 degrees,
-  // was hard to read; the 27-pixel line on a tile, 0.7 degrees, was not readable at all). Text meant to be read is
-  // 1.75 degrees tall or more; a name or a button's word 1.5 or more.
-  VRE.TEXT_DEG = 1.75;
+  // Words follow the same rule, and the sums matter. Through a 2015 Cardboard an iPhone's screen is 237 points to the
+  // unit of tangent, so at the middle of the view one degree is about 4 pixels drawn at 1 pixel a point, 8 at 2, and
+  // 12 at the screen's full 3. Words need about 20 pixels of height to read with ease, and the lens fitting softens
+  // them a little more. Tried on the phone, 28 Nov: 1.4 degrees was hard to read, then 1.75 degrees was "still
+  // unreadable", both drawn at 2 or under. So words are 2.3 degrees tall or more, and the home screen is drawn at 3.
+  VRE.TEXT_DEG = 2.3;
   // keeps a picture of words sharp when it is seen at a slant or made smaller
   VRE.sharp = (tex) => { tex.anisotropy = VRE.aniso || 1; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true; return tex; };
 
@@ -1068,7 +1073,7 @@
       g.addColorStop(0, 'rgba(26,40,66,0.92)'); g.addColorStop(1, 'rgba(8,13,26,0.92)'); // dark enough that white words stand clear of whatever is behind
       x.fillStyle = g; x.fill();
       x.lineWidth = 3; x.strokeStyle = 'rgba(233,238,245,0.30)'; x.stroke();
-      x.fillStyle = INK; x.font = '600 46px ' + FONT; x.textAlign = 'left'; x.textBaseline = 'middle';
+      x.fillStyle = INK; x.font = '700 54px ' + FONT; x.textAlign = 'left'; x.textBaseline = 'middle';
       x.fillText(w.title, 34, 44);
       x.fillStyle = 'rgba(233,238,245,0.16)'; x.fillRect(28, 76, W - 56, 2);
       x.save(); x.translate(0, 84);
@@ -1083,7 +1088,7 @@
           x.fillStyle = 'rgba(127,200,255,0.55)'; rr(x, sp.x + 6, sp.y + sp.h / 2 - 5, (sp.w - 12) * v, 10, 5); x.fill();
           x.fillStyle = INK; x.beginPath(); x.arc(sp.x + 6 + (sp.w - 12) * v, sp.y + sp.h / 2, Math.min(18, sp.h / 2 - 4), 0, 7); x.fill();
         }
-        if (sp.label) { x.fillStyle = INK; x.font = '600 42px ' + FONT; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(typeof sp.label === 'function' ? sp.label(w) : sp.label, sp.x + sp.w / 2, sp.y + sp.h / 2 + (sp.slide ? -sp.h / 2 - 30 : 2)); }
+        if (sp.label) { x.fillStyle = INK; x.font = '700 52px ' + FONT; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(typeof sp.label === 'function' ? sp.label(w) : sp.label, sp.x + sp.w / 2, sp.y + sp.h / 2 + (sp.slide ? -sp.h / 2 - 34 : 3)); }
       });
       x.restore();
       w.tex.needsUpdate = true;
@@ -1107,12 +1112,12 @@
     }
     const api = {
       list, R, MAX,
-      // Words in a window, at a size that can be read through the lenses (46 pixels: 1.75 degrees at this distance),
+      // Words in a window, at a size that can be read through the lenses (60 pixels: 2.3 degrees at this distance),
       // wrapped to the window's width. Give it the lines or paragraphs; it gives back where the words ended.
       text(x, W, lines, opt) {
-        const px = (opt && opt.px) || 46, left = (opt && opt.x) || 34, width = (opt && opt.w) || W - left - 34;
+        const px = (opt && opt.px) || 60, left = (opt && opt.x) || 34, width = (opt && opt.w) || W - left - 34;
         let y = (opt && opt.y) || 12;
-        x.fillStyle = (opt && opt.color) || INK; x.textAlign = 'left'; x.textBaseline = 'top'; x.font = '500 ' + px + 'px ' + FONT;
+        x.fillStyle = (opt && opt.color) || INK; x.textAlign = 'left'; x.textBaseline = 'top'; x.font = '600 ' + px + 'px ' + FONT;
         (Array.isArray(lines) ? lines : [lines]).forEach((para) => {
           let line = '';
           String(para).split(' ').forEach((wd) => { if (line && x.measureText(line + ' ' + wd).width > width) { x.fillText(line, left, y); y += px * 1.22; line = wd; } else line = line ? line + ' ' + wd : wd; });
@@ -1209,25 +1214,26 @@
   // 11 degrees from one to the next, so the ring cannot rest on two at once. Look at one and pinch: a game opens as its
   // own page; a window app opens a window.
   // const home = VRE.home({ scene, pointer, apps, onPage(url, app), onWindow(app) });   home.show(true / false)
-  // With shape: 'tile' each app is a card in place of a round icon: its sign over its name, 11.6 degrees wide and 8 tall.
+  // With shape: 'tile' each app is a card in place of a round icon: its sign over its name, 15 degrees wide and 10.5
+  // tall, three to a row, the name in letters over 2 degrees tall.
   VRE.home = function (o) {
     const TILE = o.shape === 'tile';
-    const R = o.R || 1.5, PER_ROW = o.perRow || 4, STEP = (TILE ? 12.6 : 11) * D, ROW = (TILE ? 9.4 : 11.5) * D, TOP = (o.pitch != null ? o.pitch : -1) * D, ICON = VRE.sizeAt(7, R) / 2;
-    const TW = VRE.sizeAt(11.6, R), TH = VRE.sizeAt(8, R);
+    const R = o.R || 1.5, PER_ROW = o.perRow || (TILE ? 3 : 4), STEP = (TILE ? 16.2 : 11) * D, ROW = (TILE ? 11.6 : 11.5) * D, TOP = (o.pitch != null ? o.pitch : -1) * D, ICON = VRE.sizeAt(7, R) / 2;
+    const TW = VRE.sizeAt(15, R), TH = VRE.sizeAt(10.5, R);
     const card = (app) => {
-      // a tile carries only what can be read at a glance: its sign, and its name in letters a degree and a half tall
-      const c = document.createElement('canvas'); c.width = 464; c.height = 320;
+      // a tile carries only what can be read at a glance: its sign, and its name in letters over two degrees tall
+      const c = document.createElement('canvas'); c.width = 600; c.height = 420;
       const x = c.getContext('2d'), rr = (a, b, w, h, r) => { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); };
-      const g = x.createLinearGradient(0, 0, 0, 320);
-      g.addColorStop(0, 'rgba(30,46,76,0.94)'); g.addColorStop(1, 'rgba(8,13,26,0.94)');
-      rr(4, 4, 456, 312, 34); x.fillStyle = g; x.fill(); x.lineWidth = 5; x.strokeStyle = 'rgba(233,238,245,0.45)'; x.stroke();
-      x.fillStyle = app.color; x.beginPath(); x.arc(232, 86, 60, 0, 7); x.fill();
+      const g = x.createLinearGradient(0, 0, 0, 420);
+      g.addColorStop(0, 'rgba(30,46,76,0.95)'); g.addColorStop(1, 'rgba(8,13,26,0.95)');
+      rr(5, 5, 590, 410, 40); x.fillStyle = g; x.fill(); x.lineWidth = 6; x.strokeStyle = 'rgba(233,238,245,0.5)'; x.stroke();
+      x.fillStyle = app.color; x.beginPath(); x.arc(300, 104, 74, 0, 7); x.fill();
       x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.font = (/[\u0000-\u00ff]/.test(app.icon[0]) ? '700 70px ' : '70px ') + 'system-ui, sans-serif'; x.fillText(app.icon, 232, 91);
-      x.font = '600 58px "Instrument Sans", system-ui, sans-serif';
+      x.font = (/[\u0000-\u00ff]/.test(app.icon[0]) ? '700 88px ' : '88px ') + 'system-ui, sans-serif'; x.fillText(app.icon, 300, 110);
+      x.font = '700 84px "Instrument Sans", system-ui, sans-serif';
       const words = app.name.split(' '); let l1 = '', l2 = '';
-      words.forEach((wd) => { if (!l2 && x.measureText((l1 + ' ' + wd).trim()).width < 430) l1 = (l1 + ' ' + wd).trim(); else l2 = (l2 + ' ' + wd).trim(); });
-      x.fillText(l1, 232, l2 ? 196 : 226); if (l2) x.fillText(l2, 232, 262, 440);
+      words.forEach((wd) => { if (!l2 && x.measureText((l1 + ' ' + wd).trim()).width < 560) l1 = (l1 + ' ' + wd).trim(); else l2 = (l2 + ' ' + wd).trim(); });
+      x.fillText(l1, 300, l2 ? 250 : 296, 570); if (l2) x.fillText(l2, 300, 342, 570);
       return VRE.sharp(new THREE.CanvasTexture(c));
     };
     const g = new THREE.Group(), icons = [];
@@ -1369,7 +1375,8 @@
     ['lensOn', 'lensSize', 'lensSizeO'].forEach((id) => { if (!$(id)) { const e = document.createElement(id === 'lensSizeO' ? 'output' : 'input'); e.id = id; if (id === 'lensOn') { e.type = 'checkbox'; e.checked = true; } if (id === 'lensSize') { e.type = 'range'; e.min = 80; e.max = 125; e.value = 100; } e.hidden = true; root.appendChild(e); } });
 
     const S = { on: false, ready: true, w: 1, h: 1, counting: false, count: 0, hands: false, why: '', stream: null };
-    const { renderer, perf, pace } = VRE.screen(() => S.on);
+    VRE.eyeCap = 2200;
+    const { renderer, perf, pace } = VRE.screen(() => S.on, { max: 3, min: 2.5 });
     renderer.autoClear = false;
     // The line between the two eyes is part of the view, not of the page: with the phone's rotation lock on the view is
     // drawn a quarter turn round, and the line has to turn with it to stay between the lenses (it did not, at first:

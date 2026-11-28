@@ -51,7 +51,7 @@
     const grid = new THREE.GridHelper(40, 40, 0x35507a, 0x1c2c47); grid.position.y = -1.6; sh.scene.add(grid);
   }
   const APPS = {
-    notes: () => wins.open({ id: 'notes', title: 'Notes', w: 1.1, h: 0.7, draw: (x, W) => wins.text(x, W, ['A window stays where you put it as your head turns.', 'The bar below moves it. The dot closes it. The corner sizes it.', 'It cannot stay behind if you walk away: the phone cannot tell where you stand.'], { gap: 10 }) }),
+    notes: () => wins.open({ id: 'notes', title: 'Notes', w: 1.25, h: 0.8, draw: (x, W) => wins.text(x, W, ['A window stays where you put it.', 'The bar moves it. The dot closes it. The corner sizes it.', 'It cannot stay behind if you walk away.'], { gap: 10 }) }),
     clock: () => wins.open({ id: 'clock', title: 'Clock and controls', w: 0.9, h: 0.6,
       draw(x, W, H) {
         const now = new Date();

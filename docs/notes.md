@@ -115,3 +115,11 @@ Why a frame and not a rewrite of the games as engine apps: the games are 700 and
 The fractal-symmetry bot's rules, applied: this is the cell rule one level down (a page inside a page, lending through one note), so it gets an explicit depth limit, 1, and a line in `cell.json`. The note is one small object, not a web of calls, so a third game needs no new code: `"inside": true` and the two calls.
 
 Unknown until tried on the phone: whether iPhone Safari lets a frame use a camera stream opened by its parent (same site; it should), whether it delivers motion to the frame by itself (the home passes it on in any case), whether two drawing surfaces and two hand finders at once fit in memory (the home's go quiet but are not let go), and whether sound comes through.
+
+## 28 Nov 2026: "the text is still unreadable" (engine 2.4.0)
+
+A wrong figure in the last entry, corrected. I wrote "about 16 pixels to a degree". The real sum for this phone in a 2015 Cardboard: the screen is 6.04 points to a millimetre and 39.3 mm from the lens, so 237 points to the unit of tangent, which at the middle of the view is 4.1 points to a degree. Pixels to a degree is that times the sharpness the page draws at: 4 at 1, 8 at 2, 12 at 3. The engine capped sharpness at 2 and let it fall to 1 when pictures ran late (and with the camera behind everything and the hand finder running, they do). So the 1.75 degree words of 2.2.0 were 14 pixels tall at best and 7 at worst. No wonder.
+
+Changed: the home screen draws at up to 3 and never under 2.5 (`VRE.screen(playing, { max, min })`; the eye pictures' size cap went from 1500 to 2200 for it). Words 2.3 degrees. Tiles 15 by 10.5 degrees, three to a row, names 2.1 degrees. Lowering sharpness does not help when the lateness comes from the hand finder, which is the likely case here, so the floor costs little.
+
+If it is still hard to read after this, the next things to try, in order: words at 3 degrees; the lens fitting's softening (its second pass samples the eye picture once per pixel; drawing the words after the fitting, straight to the screen, would keep them as sharp as the screen can show); and the "Picture size" setting, if the two eyes' pictures are not coming together, which blurs everything however sharp it is drawn.
